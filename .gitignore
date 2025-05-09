@@ -3,3 +3,9 @@
 notebooks/*
 *__pycache__
 .vscode/*
+
+treehouse # python
+scripts
+results
+wandb
+jons
