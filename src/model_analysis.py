@@ -10,7 +10,7 @@ from peft import PeftConfig, PeftModel
 from safetensors import safe_open
 from safetensors.torch import save_file
 
-from src.utils import check_if_null
+from src.utils import check_if_null, get_device
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #               Accessing HuggingFace models and performing analysis   
@@ -30,7 +30,9 @@ class LoraAnalysis:
     """
 
     def __init__(self, base_model_path:str, peft_path:str, 
-                 build_model:bool=True, n_layers:Optional[int]=None, 
+                #  peft_local:bool=True, 
+                 build_model:bool=True, 
+                 n_layers:Optional[int]=None, 
                  custom_name:Optional[str]=None):
         """
         param: base_model_path : str    path/name/id of the base model
@@ -41,8 +43,11 @@ class LoraAnalysis:
 
         """
 
-
+        self.device = get_device()
         self.base_model_path = base_model_path
+        
+        # if peft_local: 
+        #     peft_path = os.path.abspath(peft_path)
         self.peft_path = peft_path
 
         self.tokenizer = AutoTokenizer.from_pretrained(base_model_path, 
@@ -51,7 +56,7 @@ class LoraAnalysis:
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
         if build_model:
-            self.model = self.get_lora_model()
+            self.model = self.get_lora_model().to(self.device)
         
         # set default weight naming function 
         self.weight_name_function = get_weight_name_function(base_model_path)
@@ -69,9 +74,15 @@ class LoraAnalysis:
         # self.cache_file_path = cache_path
 
         self.cache = {} # cache key -> cached value
+
     
     def clear_cache(self):
+        """clear cache"""
         self.cache.clear()
+
+    def to(self, device):
+        self.model.to(device)
+
 
 
     def get_lora_model(self):
@@ -185,8 +196,11 @@ class LoraAnalysis:
         model.eval()
 
         with torch.no_grad():
-            outputs = model.generate(inputs=inputs['input_ids'], 
+            outputs = model.generate(inputs=inputs['input_ids'].to(self.device),
+                                     attention_mask=inputs['attention_mask']\
+                                        .to(self.device), 
                                     max_new_tokens=512,
+                                    return_dict_in_generate=True,
                                     output_hidden_states=states,
                                     output_attentions=attention)
 

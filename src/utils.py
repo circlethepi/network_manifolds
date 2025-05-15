@@ -79,3 +79,59 @@ def check_if_null(named_param_or_var, alternate):
     """ checks if an object exists and returns the given alternate if not
     """
     return named_param_or_var if named_param_or_var is not None else alternate
+
+
+def move_output_tensors(output_dict:dict, device:torch.device):
+    """moves output tensors from a model to a different device
+    
+    TODO add description
+    """
+
+    possible_keys = ["sequences", 
+                     "attentions", 
+                     "hidden_states", 
+                     "past_key_values"]
+    # get the applicable keys
+    keys_to_use = list(set(output_dict.keys()) & set(possible_keys))
+    
+    new_dict = {}
+
+    for key in keys_to_use:
+        value = output_dict[key]
+
+        if key == "sequences":
+            new_dict[key] = value.to(device)
+        
+        else:
+            # `max_seq_len` entries, each a tuple with `n_layers` tensors
+            new_value = []
+            for entry in value:
+                new_value.append([x.to(device) for x in entry])
+            new_dict[key] = tuple(new_value)
+
+    return new_dict
+
+# def move_devices(obj, device:torch.device):
+    
+#     if isinstance(obj, torch.Tensor):
+#         return obj.to(device)
+#     elif isinstance(obj, dict):
+#         return {k: move_devices(v, device) for k, v in obj.items()}
+#     elif isinstance(obj, list):
+#         return [move_devices(x, device) for x in obj]
+#     elif isinstance(obj, tuple):
+#         return tuple(move_devices(x, device) for x in obj)
+#     else:
+#         print(f'object is {type(obj)}\nreturning object...')
+#         return obj
+
+    
+    
+
+
+
+
+
+
+
+    return
