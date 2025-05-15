@@ -3,6 +3,7 @@
 notebooks/*
 *__pycache__
 .vscode/*
+.jupyter
 
 treehouse
 scripts
