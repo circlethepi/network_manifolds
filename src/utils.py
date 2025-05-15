@@ -73,3 +73,9 @@ class AverageMeter(object):
     def __str__(self):
         fmtstr = '{name} {val' + self.format + '} ({avg' + self.format + '})'
         return fmtstr.format(**self.__dict__)
+
+
+def check_if_null(named_param_or_var, alternate):
+    """ checks if an object exists and returns the given alternate if not
+    """
+    return named_param_or_var if named_param_or_var is not None else alternate

@@ -8,4 +8,6 @@ treehouse
 scripts
 results
 wandb
-jons
+jobs
+
+*.log

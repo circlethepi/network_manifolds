@@ -1,2 +1,0 @@
-# Log/Project Notes
-
