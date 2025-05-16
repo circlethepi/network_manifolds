@@ -184,12 +184,13 @@ class LoraAnalysis:
                                 cache=cache)
 
 
-    def inference(self, inputs:dict, states:bool=True, attention:bool=True):
+    def inference(self, inputs:dict, states:bool=False, attention:bool=False):
         """
-        Do inference/access activations in response to inputs. Inputs should be
+        Do inference (does not collect activations). Inputs should be
         tokenized already.
 
         TODO add disc saving functionality
+        TODO add support for max_length option
         """
         model = self.model
 
@@ -199,10 +200,34 @@ class LoraAnalysis:
             outputs = model.generate(inputs=inputs['input_ids'].to(self.device),
                                      attention_mask=inputs['attention_mask']\
                                         .to(self.device), 
-                                    max_new_tokens=512,
+                                    max_length=512,
                                     return_dict_in_generate=True,
                                     output_hidden_states=states,
                                     output_attentions=attention)
+
+        return outputs
+    
+
+    def get_activations(self, inputs:dict, layers:list[str], 
+                        return_outputs:bool=True, states:bool=True, 
+                        attention:bool=True):
+        """
+        Do inference and collect activations. 
+        Inputs should be a tokenized dictionary.
+        Layers should be in the form of a path. 
+
+        TODO add option/way to specify which layers by number, projection, etc
+        TODO add max_length option
+        """
+
+        outputs = inference_with_activations(
+            input=inputs,
+            layers=layers,
+            model=self.model,
+            return_outputs=return_outputs,
+            states=states,
+            attention=attention
+        )
 
         return outputs
 
@@ -229,7 +254,7 @@ def llama_wnf(k:str):
     lora_id = re.search(r'\blora_([AB])', k).group(1)
 
     # pad layer number to have same number of leading 0s
-    padded_number = f'{int(layer_number):0{1}d}'
+    padded_number = f'{int(layer_number):0{2}d}'
 
     name = f"{padded_number}_{proj_type}-prj_{lora_id}"
     return name
@@ -292,3 +317,147 @@ def make_cache_dir_name(base_model_path:str, peft_path:str,
     pathname = os.path.join(GLOBAL_ANALYSIS_DIR, names, custom_name)
 
     return pathname
+
+
+
+
+def get_nested_attr(obj:object, path:str):
+    """accesses an attribute from a path that is a string. Helper for accessing
+    attributes from namestrings iteratively.
+
+    :param obj : object     object should have the desired attribute
+    :param path : str       string of the way we would access the attribute 
+                            directly inline
+    
+    :return object.path 
+
+    example. Suppose `B` is an object with attribute `A`. Attribute `A` is also 
+             an object with attribute `Z`, which we want to access.
+
+             We can either do this with `B.A.Z` inline, or with 
+             `get_nested_attr(B, "A.Z")`. 
+    """
+    # Split the path by the dot notation; make indices into splits
+    parts = path.replace('[', '.').replace(']', '').split('.')
+    
+    for part in parts:
+        # If the part is an index, access the list by index
+        if part.isdigit():
+            obj = obj[int(part)]
+        else:
+            # Otherwise, use getattr to access the attribute
+            obj = getattr(obj, part)
+    return obj
+
+
+
+# getting activations
+# useful to also get the output information (expensive otherwise)
+def inference_with_activations(input:dict, layers:list[str], model,
+                               return_outputs:bool=True, states:bool=True,
+                               attention:bool=True):
+    """ function to get model activations at the specified layers for the given
+    input data/queries
+    
+    :param input : dict of tokens   input['input_ids'] : tensor with shape
+                                    (batch_size, {max}_seq_len)
+    :param layers : list[str]   should be a list of layer names/attribute paths
+                                each should be a torch.nn.Module
+    :param model :   the model to do inference on
+
+    :param outputs : bool   whether to return the outputs of the model also
+    :param states : bool    whether to return the hidden states (output from
+                            embedding layer + all attention layers)
+    :param attention : bool whether to return the attention scores
+
+    :return: dict
+    """
+    model.eval()
+
+    saved_activations = dict()
+        
+    def get_activations(name):
+        def hook(self, inputs, output):
+            saved_activations[name].append(inputs[0].detach())
+        return hook
+
+    # make the hooks
+    for ell in layers:
+        saved_activations[ell] = []
+        lay = get_nested_attr(model, ell)
+        lay.register_forward_hook(get_activations(ell))
+
+    # run inference
+    with torch.no_grad():
+        outputs = model.generate(inputs=input['input_ids'].to(model.device),
+                        attention_mask=input['attention_mask'].to(model.device),
+                        return_dict_in_generate=True,
+                        max_length=512,
+                        output_hidden_states=states,
+                        output_attentions=attention)
+
+    # clear the hooks
+    for ell in layers:
+        ell = get_nested_attr(model, ell)
+        ell._forward_hooks.clear()
+    
+    # configure output
+    outdict = {
+        "layers" : layers,
+        "activations" : saved_activations,
+    }
+    if return_outputs:
+        outdict.update(outputs)
+    
+    print(outdict.keys())
+
+    return outdict
+
+
+
+
+def move_output_tensors(output_dict:dict, device:torch.device):
+    """moves output tensors from a model to a different device
+    
+    TODO add description
+    """
+
+    possible_keys = ["sequences", 
+                     "attentions", 
+                     "hidden_states", 
+                     "past_key_values",
+
+                     # for use with inference_with_activations
+                     "activations", 
+                     "layers"
+                     ]
+    # get the applicable keys
+    keys_to_use = list(set(output_dict.keys()) & set(possible_keys))
+    
+    new_dict = {}
+
+    for key in keys_to_use:
+        value = output_dict[key]
+
+        if key == "sequences":
+            new_dict[key] = value.to(device)
+        
+        elif key == "layers": # each of these is a string
+            new_dict[key] = value
+        
+        elif key == 'activations': # dictionary layer_name -> list(tensor) 
+            act_dict = {}
+            for k, v in value.items():
+                act_dict[k] = [x.to(device) for x in v]
+
+            new_dict[key] = act_dict
+
+        else:
+            # `max_seq_len` entries, each a tuple with `n_layers` tensors
+            new_value = []
+            for entry in value:
+                new_value.append([x.to(device) for x in entry])
+            new_dict[key] = tuple(new_value)
+
+    print(new_dict.keys())
+    return new_dict
