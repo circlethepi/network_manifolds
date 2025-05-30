@@ -210,7 +210,8 @@ class LoraAnalysis:
 
     def get_activations(self, inputs:dict, layers:list[str], 
                         return_outputs:bool=True, states:bool=True, 
-                        attention:bool=True):
+                        attention:bool=True,
+                        num_return_sequences:int=1):
         """
         Do inference and collect activations. 
         Inputs should be a tokenized dictionary.
@@ -226,7 +227,8 @@ class LoraAnalysis:
             model=self.model,
             return_outputs=return_outputs,
             states=states,
-            attention=attention
+            attention=attention,
+            num_return_sequences=num_return_sequences
         )
 
         return outputs
@@ -355,7 +357,9 @@ def get_nested_attr(obj:object, path:str):
 # useful to also get the output information (expensive otherwise)
 def inference_with_activations(input:dict, layers:list[str], model,
                                return_outputs:bool=True, states:bool=True,
-                               attention:bool=True):
+                               attention:bool=True, 
+                               num_return_sequences:int=1,
+                               max_length:int=512):
     """ function to get model activations at the specified layers for the given
     input data/queries
     
@@ -369,6 +373,10 @@ def inference_with_activations(input:dict, layers:list[str], model,
     :param states : bool    whether to return the hidden states (output from
                             embedding layer + all attention layers)
     :param attention : bool whether to return the attention scores
+    :param num_return_sequences : int   number of sequences to return for each 
+                                        input sequence. Default is 1
+    :param max_length : int     maximum length of the output sequence. Default 
+                                is 512
 
     :return: dict
     """
@@ -392,14 +400,19 @@ def inference_with_activations(input:dict, layers:list[str], model,
         outputs = model.generate(inputs=input['input_ids'].to(model.device),
                         attention_mask=input['attention_mask'].to(model.device),
                         return_dict_in_generate=True,
-                        max_length=512,
+                        max_length=max_length,
                         output_hidden_states=states,
-                        output_attentions=attention)
+                        output_attentions=attention,
+                        num_return_sequences=num_return_sequences)
 
     # clear the hooks
     for ell in layers:
         ell = get_nested_attr(model, ell)
         ell._forward_hooks.clear()
+
+    # process the activations
+    # TODO write this function :)
+    # saved_activations = restructure_activation_dict(saved_activations)
     
     # configure output
     outdict = {
@@ -412,6 +425,53 @@ def inference_with_activations(input:dict, layers:list[str], model,
     print(outdict.keys())
 
     return outdict
+
+
+def restructure_activation_dict(saved_activations:dict, n_replicates:int,
+                                # max_length:int
+                                ):
+    """
+    :param saved_activations : dict [ layer_name -> list(activations) ]
+    :param n_replicates : int   number of replicates for inputs
+    :param max_length : int   maximum length of the input sequence
+
+    activations are a list. 
+    1st element is ( n_replicates x batch_size, input_length , hidden_size)
+        these are activations for the input string
+    Subsequent elements are ( n_replicates x batch_size , 1 , hidden_size) 
+        these are the activations during inference
+
+    :return: dict [ layer_name -> list(activations) ]
+    where each activation is a tensor of shape (n_replicates, input_length, hidden_size)
+    """
+    # TODO: fold into activation gathering maybe
+
+    layer_name = list(saved_activations.keys())[0]
+
+    activations = saved_activations[layer_name]
+
+    nrb, inlen, hidden_size = activations[0].shape 
+    batch_size = nrb // n_replicates
+
+    # create stacks for activation and generation
+    input_activations = activations[0]  
+        # ( n_replicates x batch_size, input_length , hidden_size)
+
+    generation_activations = torch.cat(activations[1:], dim=1)
+        # ( n_replicates x batch_size, generated_length, hidden_size)
+
+    # average each over the replicates
+    idx_list = list(range(0, nrb, n_replicates))
+
+    def average_over_replicates(acts:torch.Tensor):
+        avged = torch.stack([torch.mean(acts[k:k+n_replicates], dim=0) \
+                             for k in idx_list])
+        return avged
+    
+    input_avg = average_over_replicates(input_activations)
+    gener_avg = average_over_replicates(generation_activations)
+
+    return input_avg, gener_avg
 
 
 
