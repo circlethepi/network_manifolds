@@ -52,7 +52,7 @@ class LoraAnalysis:
 
         self.tokenizer = AutoTokenizer.from_pretrained(base_model_path, 
                                                        use_fast=True)
-                                                       # TODO add option to not
+                                                # WISHLIST add option to not
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
         if build_model:
@@ -63,8 +63,8 @@ class LoraAnalysis:
 
         
         # caching
-        # TODO better caching functionality
-        # TODO add disc caching (eventually)
+        # WISHLIST better caching functionality
+        # WISHLIST add disc caching (eventually)
         # cache_path = make_cache_dir_name(base_model_path, peft_path,
         #                                  custom_name=custom_name)
         
@@ -411,8 +411,7 @@ def inference_with_activations(input:dict, layers:list[str], model,
         ell._forward_hooks.clear()
 
     # process the activations
-    # TODO write this function :)
-    # saved_activations = restructure_activation_dict(saved_activations)
+    saved_activations = restructure_activation_dict(saved_activations)
     
     # configure output
     outdict = {
@@ -435,51 +434,61 @@ def restructure_activation_dict(saved_activations:dict, n_replicates:int,
     :param n_replicates : int   number of replicates for inputs
     :param max_length : int   maximum length of the input sequence
 
-    activations are a list. 
-    1st element is ( n_replicates x batch_size, input_length , hidden_size)
-        these are activations for the input string
-    Subsequent elements are ( n_replicates x batch_size , 1 , hidden_size) 
-        these are the activations during inference
+    activations are a list of max_length specified at generation
+        1st entry: activations for the input string
+            ( n_replicates x batch_size, input_length , hidden_size)
+        2nd - (max_length - 1)th entries: activations during generation
+            ( n_replicates x batch_size , 1 , hidden_size)
 
-    :return: dict [ layer_name -> list(activations) ]
-    where each activation is a tensor of shape (n_replicates, input_length, hidden_size)
+
+    :return restructured: dict [ layer_name -> tuple(activations) ]
+
+    where each activation is now a tensor of shape
+        1st entry : activations for the input string
+            (batch_size, input_length, hidden_size)
+        2nd entry : activations for generation
+            (batch_size, max_length - input_length, hidden_size)
+        
+
     """
-    # TODO: fold into activation gathering maybe
 
-    layer_name = list(saved_activations.keys())[0]
+    restructured = {}
 
-    activations = saved_activations[layer_name]
-
-    nrb, inlen, hidden_size = activations[0].shape 
-    batch_size = nrb // n_replicates
-
-    # create stacks for activation and generation
-    input_activations = activations[0]  
-        # ( n_replicates x batch_size, input_length , hidden_size)
-
-    generation_activations = torch.cat(activations[1:], dim=1)
-        # ( n_replicates x batch_size, generated_length, hidden_size)
-
-    # average each over the replicates
-    idx_list = list(range(0, nrb, n_replicates))
-
-    def average_over_replicates(acts:torch.Tensor):
-        avged = torch.stack([torch.mean(acts[k:k+n_replicates], dim=0) \
-                             for k in idx_list])
-        return avged
+    for layer_name, activations in saved_activations.items():
     
-    input_avg = average_over_replicates(input_activations)
-    gener_avg = average_over_replicates(generation_activations)
+        nrb, inlen, hidden_size = activations[0].shape 
+        batch_size = nrb // n_replicates # TODO do I need this?
 
-    return input_avg, gener_avg
+        # create stacks for activation and generation
+        input_activations = activations[0]  
+            # ( n_replicates x batch_size, input_length , hidden_size)
 
+        generation_activations = torch.cat(activations[1:], dim=1)
+            # ( n_replicates x batch_size, generated_length, hidden_size)
+
+        # average each over the replicates
+        idx_list = list(range(0, nrb, n_replicates))
+
+        def average_over_replicates(acts:torch.Tensor):
+            avged = torch.stack([torch.mean(acts[k:k+n_replicates], dim=0) \
+                                for k in idx_list])
+            return avged
+        
+        # get the averages
+        input_avg = average_over_replicates(input_activations)
+        gener_avg = average_over_replicates(generation_activations)
+
+        # set the new value
+        restructured[layer_name] = (input_avg, gener_avg)
+
+    return restructured
 
 
 
 def move_output_tensors(output_dict:dict, device:torch.device):
+# TODO add description
     """moves output tensors from a model to a different device
     
-    TODO add description
     """
 
     possible_keys = ["sequences", 
