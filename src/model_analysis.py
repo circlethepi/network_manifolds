@@ -4,11 +4,12 @@ import random
 import os
 import re
 from typing import Optional, Union
+from pathlib import Path
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftConfig, PeftModel
 from safetensors import safe_open
-from safetensors.torch import save_file
+from safetensors.torch import save_file, load_file
 
 from src.utils import check_if_null, get_device
 
@@ -20,7 +21,32 @@ from src.utils import check_if_null, get_device
 #   description of the file here
 #
 
-GLOBAL_ANALYSIS_DIR = "~/scratchcpriebe1/MO/network_manifolds/results/cache"
+GLOBAL_ANALYSIS_DIR = "/weka/home/mohata1/scratchcpriebe1/MO/network_manifolds/results/cache"
+
+
+# Memory stuff
+def memoize(savepath, compute, recompute=False, device="cuda"):
+    """
+    """
+    device = torch.device(device)
+
+    if not isinstance(savepath, Path):
+        path = Path(savepath)
+
+    if (not recompute) and path.exists():
+        # load the cached result
+        print(f"Loading cached result from {path}")
+        return torch.load(path, map_location=device)
+    else:
+        # compute the result
+        print(f"Computing result and saving to {path}")
+        result = compute()
+        torch.save(result, path)
+
+        return result
+
+
+
 
 
 class LoraAnalysis:
@@ -65,13 +91,15 @@ class LoraAnalysis:
         # caching
         # WISHLIST better caching functionality
         # WISHLIST add disc caching (eventually)
-        # cache_path = make_cache_dir_name(base_model_path, peft_path,
-        #                                  custom_name=custom_name)
-        
-        # ## check if path exists
-        # if not os.path.exists(cache_path):
-        #     os.mkdir(cache_path)
-        # self.cache_file_path = cache_path
+        cache_path = make_cache_dir_name(base_model_path, peft_path,
+                                         custom_name=custom_name)        
+        ## check if path exists
+        if not os.path.exists(cache_path):
+            print(f"Creating cache directory at {cache_path}")
+            os.makedirs(cache_path)
+        else:
+            print(f"Using existing cache directory at {cache_path}")
+        self.cache_file_path = cache_path
 
         self.cache = {} # cache key -> cached value
 
@@ -86,6 +114,11 @@ class LoraAnalysis:
 
 
     def get_lora_model(self):
+        """
+        Loads the LoRA model from the specified path.
+
+        :return model : PeftModel
+        """
         base_model = AutoModelForCausalLM.\
                         from_pretrained(self.base_model_path, 
                                         torch_dtype="auto", device_map="auto")
@@ -113,12 +146,7 @@ class LoraAnalysis:
         if cache and cache_key in self.cache.keys():
             return self.cache[cache_key]
 
-        if weight_name_function is not None:
-            wnf = weight_name_function
-        elif self.weight_name_function is not None:
-            wnf = self.weight_name_function
-        else:
-            wnf = get_weight_name_function("DEFAULT")
+        wnf = self.find_weight_name_func(custom_wnf=weight_name_function)
         
         # get path to weight tensors
         if alternate_tensor_name is not None:
@@ -128,6 +156,7 @@ class LoraAnalysis:
         tensor_path = os.path.join(self.peft_path, tensor_filename)
 
         # load the weight tensors and make dict
+        # keys are renamed with the weight name function
         tensor_dict = {}
         with safe_open(tensor_path, framework="pt") as file: 
             # TODO add option to change device
@@ -147,11 +176,15 @@ class LoraAnalysis:
         """get the attribute names for each of the LoRA matrices
         useful for registering forward hooks
         """
-        cache_key = "lora_names"
+        cache_key = "lora_attribute_names"
 
         if cache and cache_key in self.cache.keys():
             return self.cache[cache_key]
+        elif cache and "lora_weights" in self.cache.keys():
+            # if we have the weights, we can get the layer names from there
+            return list(self.cache["lora_weights"].keys())
 
+        # otherwise, load the tensor file and get the layer names
         if alternate_tensor_name is not None:
             tensor_filename = alternate_tensor_name
         else:
@@ -165,6 +198,18 @@ class LoraAnalysis:
             self.cache[cache_key] = layer_names
 
         return layer_names
+
+
+    def find_weight_name_func(self, custom_wnf:Optional[callable]=None):
+        """determine weight name function"""
+        if custom_wnf is not None:
+            wnf = custom_wnf
+        elif self.weight_name_function is not None:
+            wnf = self.weight_name_function
+        else:
+            wnf = get_weight_name_function("DEFAULT")
+        
+        return wnf
 
 
     @property
@@ -182,6 +227,30 @@ class LoraAnalysis:
         return self.get_lora_layer_attribute_names(
                                 alternate_tensor_name=alternate_tensor_name,
                                 cache=cache)
+    
+    @property
+    def lora_layer_names(self, weight_name_function:Optional[callable]=None,
+                         alternate_tensor_name:Optional[str]=None, 
+                         cache:bool=True):
+        """property to get the names of the LoRA layers according to the
+        model weight name function (architecture specific)"""
+
+        cache_key = "lora_layer_names"
+        if cache and cache_key in self.cache.keys():
+            return self.cache[cache_key]
+
+        # get the weight name function
+        wnf = self.find_weight_name_func(custom_wnf=weight_name_function)
+
+        names = [wnf(atr_path) for atr_path in\
+                 self.get_lora_layer_attribute_names(
+                                alternate_tensor_name=alternate_tensor_name, 
+                                cache=cache)]
+        names.sort()
+        
+        if cache:
+            self.cache["lora_layer_names"] = names
+        return names
 
 
     def inference(self, inputs:dict, states:bool=False, attention:bool=False):
@@ -211,15 +280,22 @@ class LoraAnalysis:
     def get_activations(self, inputs:dict, layers:list[str], 
                         return_outputs:bool=True, states:bool=True, 
                         attention:bool=True,
-                        num_return_sequences:int=1):
+                        num_return_sequences:int=1,
+                        max_length:int=512):
         """
         Do inference and collect activations. 
         Inputs should be a tokenized dictionary.
         Layers should be in the form of a path. 
 
-        TODO add option/way to specify which layers by number, projection, etc
+        WISHLIST add option/way to specify which layers by number, projection, etc
         TODO add max_length option
         """
+        # TODO add disc saving functionality
+        act_save_path = os.path.join(self.cache_file_path, "activations")
+        if not os.path.exists(act_save_path):
+            print(f"Creating directory {act_save_path}")
+            os.makedirs(act_save_path, exist_ok=True)
+        
 
         outputs = inference_with_activations(
             input=inputs,
@@ -228,11 +304,15 @@ class LoraAnalysis:
             return_outputs=return_outputs,
             states=states,
             attention=attention,
-            num_return_sequences=num_return_sequences
+            num_return_sequences=num_return_sequences,
+            max_length=max_length,
+            # saving
+            save_path=act_save_path,
+            save_to_disc=True,
+            input_name=input_name,
         )
 
         return outputs
-
 
     # def pipe_inference(self, inputs:dict, s)
 
@@ -258,7 +338,7 @@ def llama_wnf(k:str):
     # pad layer number to have same number of leading 0s
     padded_number = f'{int(layer_number):0{2}d}'
 
-    name = f"{padded_number}_{proj_type}-prj_{lora_id}"
+    name = f"{padded_number}_{proj_type}-proj_{lora_id}"
     return name
 
 
@@ -299,24 +379,41 @@ def make_cache_dir_name(base_model_path:str, peft_path:str,
                         custom_name:Optional[str]=None):
     """
     returns the path to the analysis cache directory
+    :param base_model_path : str   path to the base model
+    :param peft_path : str         path to the fine-tuned model
+    :param custom_name : str|None  custom name to append to the cache path
+                                    (default: None)
+    :return pathname : str         path to the cache directory
+
+    This function will create a path in the form of
+    {GLOBAL_ANALYSIS_DIR}/{base_model_path}/{peft_path}/{custom_name}
     """
+
+    # WISHLIST add option to add custom rules
+        # may be useful for models other than llama
 
     rules = [ # (compile/pattern, replacement)
         (re.compile(r'^.*?results/'), ""),   # remove path to results dir
         (re.compile(r'/'), "__")           # replace "/" for names
     ]
 
+    # apply the replacement rules
     names = []
     for s in [base_model_path, peft_path]:
-        print(s)
-        for pat, rep in rules:
-            s = pat.sub(rep, s)
-            print(s)
+        # print(s)
+        for pattern, replacement in rules:
+            s = pattern.sub(replacement, s)
+            # print(s)
         names.append(s)
     names = "___".join(names)
 
+    # check if we have a custom name
     custom_name = check_if_null(custom_name, "")
-    pathname = os.path.join(GLOBAL_ANALYSIS_DIR, names, custom_name)
+    if custom_name != "":
+        names += f"/{custom_name}"
+
+    # make the path
+    pathname = os.path.join(GLOBAL_ANALYSIS_DIR, names)
 
     return pathname
 
@@ -359,7 +456,12 @@ def inference_with_activations(input:dict, layers:list[str], model,
                                return_outputs:bool=True, states:bool=True,
                                attention:bool=True, 
                                num_return_sequences:int=1,
-                               max_length:int=512):
+                               max_length:int=512,
+
+                               # saving things
+                               save_to_disc:bool=True,
+                               save_path:Optional[str]=None,
+                               input_name:Optional[str]=None):
     """ function to get model activations at the specified layers for the given
     input data/queries
     
@@ -380,7 +482,18 @@ def inference_with_activations(input:dict, layers:list[str], model,
 
     :return: dict
     """
+    # check if saving 
+    if save_to_disc:
+        if save_path is None:
+            raise ValueError("save_path must be specified if save_to_disc is True")
+        else:
+            save_path = Path(save_path)
+            if not save_path.exists():
+                print(f"Creating directory {save_path}")
+                save_path.makedirs(parents=True, exist_ok=True)
+
     model.eval()
+
 
     saved_activations = dict()
         
@@ -411,7 +524,9 @@ def inference_with_activations(input:dict, layers:list[str], model,
         ell._forward_hooks.clear()
 
     # process the activations
-    saved_activations = restructure_activation_dict(saved_activations)
+    # TODO add option to not
+    saved_activations = restructure_activation_dict(saved_activations, 
+                                            n_replicates=num_return_sequences)
     
     # configure output
     outdict = {
@@ -427,12 +542,17 @@ def inference_with_activations(input:dict, layers:list[str], model,
 
 
 def restructure_activation_dict(saved_activations:dict, n_replicates:int,
+                                concat_all:bool=True
                                 # max_length:int
                                 ):
     """
     :param saved_activations : dict [ layer_name -> list(activations) ]
     :param n_replicates : int   number of replicates for inputs
     :param max_length : int   maximum length of the input sequence
+    :param concat_all : bool   whether to concatenate all activations into one
+                                tensor. If False, the activations are returned
+                                as a tuple of tensors corrensponding to the 
+                                input and the generated sequence.
 
     activations are a list of max_length specified at generation
         1st entry: activations for the input string
@@ -449,7 +569,6 @@ def restructure_activation_dict(saved_activations:dict, n_replicates:int,
         2nd entry : activations for generation
             (batch_size, max_length - input_length, hidden_size)
         
-
     """
 
     restructured = {}
@@ -479,9 +598,85 @@ def restructure_activation_dict(saved_activations:dict, n_replicates:int,
         gener_avg = average_over_replicates(generation_activations)
 
         # set the new value
-        restructured[layer_name] = (input_avg, gener_avg)
+        # input_restructured[layer_name] = input_avg
+        # generation_restructured[layer_name] = gener_avg
+        if concat_all:
+            # concatenate the input and generation activations
+            restructured[layer_name] = torch.cat((input_avg, gener_avg), dim=1)
+                                        # (batch_size, max_length, hidden_size)
+        else:
+            restructured[layer_name] = (input_avg, gener_avg)
+                        # (batch_size, input_length, hidden_size),
+                        # (batch_size, max_length - input_length, hidden_size)
 
     return restructured
+
+
+def save_activations_to_disc(activations:dict, save_path:str,
+                            input_name:Optional[str]=None,
+                            weight_name_function:Optional[callable]=None):
+    """
+    Saves the activations to disc in a structured way. Should be formatted as
+    { layer_name -> activations } where the activations are either a tensor
+    or a tuple of tensors (input_activations, generation_activations).
+
+
+    :param activations : dict [ layer_name -> activations ]
+    :param save_path : str   path to the directory where the activations should
+                            be saved
+    :param input_name : str|None   name of the input data/dataset
+    :param weight_name_function : function|None
+                                function to rename the layer names to a 
+                                standard format. If None, the layers will not
+                                be renamed. Default is None.
+
+    """
+
+    if not os.path.exists(save_path):
+        os.makedirs(save_path, exist_ok=True)
+    
+    # check if the activations are in the correct format
+    if not isinstance(activations, dict):
+        raise ValueError("activations must be a dictionary of layer names to "
+                         "activations")
+    if not all(isinstance(v, (torch.Tensor, tuple)) for v in activations.values()):
+        raise ValueError("activations must be a dictionary of layer names to "
+                         "activations, where each activation is a tensor or "
+                         "a tuple of tensors")
+    
+    # check if input_name is provided
+    input_name = check_if_null(input_name, "")
+
+    # save the activations
+    for layer_name, act in activations.items():
+
+        # rename the layer name if a function is provided
+        if weight_name_function is not None:
+            layer_name = weight_name_function(layer_name)
+
+        # check if the activation is a tuple
+        if isinstance(act, tuple):
+            # save each tensor in the tuple in a safetensor file
+            for i, tensor in enumerate(act):
+                filename = f"{layer_name}___{input_name}.safetensors" if \
+                           input_name != "" else f"{layer_name}.safetensors"
+
+                filename = f"{layer_name}_activation_{i}.pt"
+                filepath = os.path.join(save_path, filename)
+                torch.save(tensor, filepath)
+        else:
+            # save the tensor directly
+            filename = f"{layer_name}_activation.pt"
+            filepath = os.path.join(save_path, filename)
+            torch.save(act, filepath)
+
+
+
+
+    return
+
+
+
 
 
 
@@ -530,3 +725,22 @@ def move_output_tensors(output_dict:dict, device:torch.device):
 
     print(new_dict.keys())
     return new_dict
+
+
+def move_to_device(x, device:Union[str, torch.device]):
+    """
+    Moves a tensor or a list of tensors to the specified device.
+    
+    :param x: object with tensors to move
+    :param device: Device to move the tensor(s) to.
+    
+    :return: Tensor or list of tensors on the specified device.
+    """
+    if isinstance(x, dict):
+        return {k: move_to_device(v, device) for k, v in x.items()}
+    elif isinstance(x, list):
+        return [t.to(device) for t in x]
+    elif isinstance(x, tuple):
+        return tuple(t.to(device) for t in x)
+    else:
+        return x.to(device)

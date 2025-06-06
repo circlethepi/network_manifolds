@@ -120,8 +120,7 @@ def topic_split_yahoo(*yahoo_datasets, topics="all"):
             assert all(isinstance(topic, int) for topic in topics) 
 
         for topic in topics:
-            topic_datasets[topic] = yahoo_dataset.\
-                                        filter(lambda e: e['topic'] == topic)
+            topic_datasets[topic] = yahoo_dataset.filter(lambda e: e['topic'] == topic)
         
         out.append(topic_datasets)
     
@@ -161,6 +160,7 @@ def get_sample_counts(recipe, n_samples):
     :param n_samples: Total number of samples to draw.
     :return count_dict: [class_idx] -> number of samples
     """
+    #TODO: add option to use a seed
     sample = np.random.choice(len(recipe), size=n_samples, p=recipe)
     unique, counts = np.unique(sample, return_counts=True)
 
