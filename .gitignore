@@ -6,7 +6,6 @@ notebooks/*
 .jupyter
 
 treehouse
-scripts
 results
 wandb
 jobs
