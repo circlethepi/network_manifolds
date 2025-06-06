@@ -12,3 +12,4 @@ wandb
 jobs
 
 *.log
+.DS_store
