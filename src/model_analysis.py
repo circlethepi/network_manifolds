@@ -85,7 +85,7 @@ class LoraAnalysis:
             self.model = self.get_lora_model().to(self.device)
         
         # set default weight naming function 
-        self.weight_name_function = get_weight_name_function(base_model_path)
+        self.layer_name_function = get_layer_name_function(base_model_path)
 
         
         # caching
@@ -125,13 +125,13 @@ class LoraAnalysis:
         return PeftModel.from_pretrained(base_model, self.peft_path)
 
     
-    def get_lora_weights(self, weight_name_function:Optional[callable],
+    def get_lora_weights(self, layer_name_function:Optional[callable],
                          alternate_tensor_name:Optional[str]=None,
                          cache=True):
         """
         Load the LoRA weight matrices from file 
 
-        :param weight_name_function : function|None
+        :param layer_name_function : function|None
                                       f(key) -> {layer}_{type}proj_{lora A,B}
                                       function that renames keys in the tensor
                                       file to keys of standard format
@@ -146,7 +146,7 @@ class LoraAnalysis:
         if cache and cache_key in self.cache.keys():
             return self.cache[cache_key]
 
-        wnf = self.find_weight_name_func(custom_wnf=weight_name_function)
+        elnf = self.find_layer_name_func(custom_elnf=layer_name_function)
         
         # get path to weight tensors
         if alternate_tensor_name is not None:
@@ -161,7 +161,7 @@ class LoraAnalysis:
         with safe_open(tensor_path, framework="pt") as file: 
             # TODO add option to change device
             for k in file.keys():
-                key = wnf(k)
+                key = elnf(k)
                 tensor_dict[key] = file.get_tensors(k) 
         
         if cache:
@@ -200,23 +200,23 @@ class LoraAnalysis:
         return layer_names
 
 
-    def find_weight_name_func(self, custom_wnf:Optional[callable]=None):
+    def find_layer_name_func(self, custom_elnf:Optional[callable]=None):
         """determine weight name function"""
-        if custom_wnf is not None:
-            wnf = custom_wnf
-        elif self.weight_name_function is not None:
-            wnf = self.weight_name_function
+        if custom_elnf is not None:
+            elnf = custom_elnf
+        elif self.layer_name_function is not None:
+            elnf = self.layer_name_function
         else:
-            wnf = get_weight_name_function("DEFAULT")
+            elnf = get_layer_name_function("DEFAULT")
         
-        return wnf
+        return elnf
 
 
     @property
-    def lora_weights(self, weight_name_function:Optional[callable]=None, 
+    def lora_weights(self, layer_name_function:Optional[callable]=None, 
                      alternate_tensor_name:Optional[str]=None, cache:bool=True):
         """property to get lora weights"""
-        return self.get_lora_weights(weight_name_function=weight_name_function,
+        return self.get_lora_weights(layer_name_function=layer_name_function,
                                 alternate_tensor_name=alternate_tensor_name,
                                 cache=cache)
     
@@ -229,7 +229,7 @@ class LoraAnalysis:
                                 cache=cache)
     
     @property
-    def lora_layer_names(self, weight_name_function:Optional[callable]=None,
+    def lora_layer_names(self, layer_name_function:Optional[callable]=None,
                          alternate_tensor_name:Optional[str]=None, 
                          cache:bool=True):
         """property to get the names of the LoRA layers according to the
@@ -240,9 +240,9 @@ class LoraAnalysis:
             return self.cache[cache_key]
 
         # get the weight name function
-        wnf = self.find_weight_name_func(custom_wnf=weight_name_function)
+        elnf = self.find_layer_name_func(custom_elnf=layer_name_function)
 
-        names = [wnf(atr_path) for atr_path in\
+        names = [elnf(atr_path) for atr_path in\
                  self.get_lora_layer_attribute_names(
                                 alternate_tensor_name=alternate_tensor_name, 
                                 cache=cache)]
@@ -314,7 +314,7 @@ class LoraAnalysis:
             save_path=act_save_path,
             save_to_disc=True,
             input_name=input_name,
-            layer_name_func=self.weight_name_function
+            layer_name_func=self.layer_name_function
         )
 
         return outputs
@@ -327,7 +327,7 @@ class LoraAnalysis:
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 # functions that parse the names of the .safetensor weight tensors
-def llama_wnf(k:str):
+def llama_elnf(k:str):
     """
     makes weight matrix keys for llama architectures 
         f(key) -> {layer}_{type}proj_{lora A,B}
@@ -346,14 +346,20 @@ def llama_wnf(k:str):
     name = f"{padded_number}_{proj_type}-proj_{lora_id}"
     return name
 
+def default_elnf(k:str):
+    """
+    default weight name function. Minimal changes; only removes some strings
+    that might appear in a layer name 
+    """
 
-weight_name_func_dict = {
-    "DEFAULT" : llama_wnf,      # TODO create/add default weight name func
-    "meta-llama" : llama_wnf,
+
+layer_name_func_dict = {
+    "DEFAULT" : llama_elnf,      # TODO create/add default weight name func
+    "meta-llama" : llama_elnf,
 }
 
 
-def get_weight_name_function(base_model_path:str):
+def get_layer_name_function(base_model_path:str):
     """
     finds weight name parsing function for loading model LoRA weights from
     huggingface .safetensors files
@@ -361,9 +367,9 @@ def get_weight_name_function(base_model_path:str):
 
     # check if default 
     if base_model_path == "DEFAULT":
-        return weight_name_func_dict["DEFAULT"]
+        return layer_name_func_dict["DEFAULT"]
 
-    matches = [word for word in weight_name_func_dict.keys() \
+    matches = [word for word in layer_name_func_dict.keys() \
                if word in base_model_path]
     
     assert len(matches) <= 1, "multiple model names matched"
@@ -371,7 +377,7 @@ def get_weight_name_function(base_model_path:str):
     if len(matches) > 0:
         m = matches[0]
         print(f"using predefined weight name parsing function for {m}")
-        return weight_name_func_dict[m]
+        return layer_name_func_dict[m]
     else:
         print("No predefined function exists."\
               "DEFAULT will be used. Check that DEFAULT is suitable for the " \
@@ -553,7 +559,7 @@ def inference_with_activations(input:dict, layers:list[str], model,
         save_activations_to_disc(activations=saved_activations,
                                  save_path=save_path,
                                  input_name=input_name,
-                                 weight_name_function=layer_name_func)
+                                 layer_name_function=layer_name_func)
     
     # configure output
     # outdict = {
@@ -641,7 +647,7 @@ def restructure_activation_dict(saved_activations:dict, n_replicates:int,
 
 def save_activations_to_disc(activations:dict, save_path:str,
                             input_name:Optional[str]=None,
-                            weight_name_function:Optional[callable]=None):
+                            layer_name_function:Optional[callable]=None):
     """
     Saves the activations to disc in a structured way. Should be formatted as
     { layer_name -> activations } where the activations are either a tensor
@@ -652,7 +658,7 @@ def save_activations_to_disc(activations:dict, save_path:str,
     :param save_path : str   path to the directory where the activations should
                             be saved
     :param input_name : str|None   name of the input data/dataset
-    :param weight_name_function : function|None
+    :param layer_name_function : function|None
                                 function to rename the layer names to a 
                                 standard format. If None, the layers will not
                                 be renamed. Default is None.
@@ -678,8 +684,8 @@ def save_activations_to_disc(activations:dict, save_path:str,
     for layer_name, act in activations.items():
 
         # rename the layer name if a function is provided
-        if weight_name_function is not None:
-            layer_name = weight_name_function(layer_name)
+        if layer_name_function is not None:
+            layer_name = layer_name_function(layer_name)
 
         # get the filename and filepath
         filename = f"{layer_name}___{input_name}.safetensors" if \
