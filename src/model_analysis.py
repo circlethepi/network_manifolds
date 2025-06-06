@@ -281,22 +281,26 @@ class LoraAnalysis:
                         return_outputs:bool=True, states:bool=True, 
                         attention:bool=True,
                         num_return_sequences:int=1,
-                        max_length:int=512):
+                        max_length:int=512,
+
+                        input_name:Optional[str]=None):
         """
         Do inference and collect activations. 
         Inputs should be a tokenized dictionary.
         Layers should be in the form of a path. 
 
         WISHLIST add option/way to specify which layers by number, projection, etc
-        TODO add max_length option
+        TODO add option to save generated outputs
+        WISHLIST add option to save hidden states, attentions
         """
+
         # TODO add disc saving functionality
         act_save_path = os.path.join(self.cache_file_path, "activations")
+
         if not os.path.exists(act_save_path):
-            print(f"Creating directory {act_save_path}")
+            print(f"Creating activation directory\n{act_save_path}")
             os.makedirs(act_save_path, exist_ok=True)
         
-
         outputs = inference_with_activations(
             input=inputs,
             layers=layers,
@@ -310,6 +314,7 @@ class LoraAnalysis:
             save_path=act_save_path,
             save_to_disc=True,
             input_name=input_name,
+            layer_name_func=self.weight_name_function
         )
 
         return outputs
@@ -453,15 +458,18 @@ def get_nested_attr(obj:object, path:str):
 # getting activations
 # useful to also get the output information (expensive otherwise)
 def inference_with_activations(input:dict, layers:list[str], model,
-                               return_outputs:bool=True, states:bool=True,
-                               attention:bool=True, 
+                               return_outputs:bool=True, 
+                               states:bool=False,
+                               attention:bool=False, 
                                num_return_sequences:int=1,
                                max_length:int=512,
 
                                # saving things
+                               concat_activations:bool=True,
                                save_to_disc:bool=True,
                                save_path:Optional[str]=None,
-                               input_name:Optional[str]=None):
+                               input_name:Optional[str]=None,
+                               layer_name_func:Optional[callable]=None):
     """ function to get model activations at the specified layers for the given
     input data/queries
     
@@ -470,7 +478,6 @@ def inference_with_activations(input:dict, layers:list[str], model,
     :param layers : list[str]   should be a list of layer names/attribute paths
                                 each should be a torch.nn.Module
     :param model :   the model to do inference on
-
     :param outputs : bool   whether to return the outputs of the model also
     :param states : bool    whether to return the hidden states (output from
                             embedding layer + all attention layers)
@@ -480,7 +487,20 @@ def inference_with_activations(input:dict, layers:list[str], model,
     :param max_length : int     maximum length of the output sequence. Default 
                                 is 512
 
-    :return: dict
+    :param concat_activations : bool    whether to concatenate the input and 
+                                        generation activations in one tensor.
+                                        Default is True
+    :param save_to_disc : bool      whether to save the activation tensors.
+                                    Default is True
+    :param save_path : str|None     (optional) path to save activation tensors 
+    :param input_name : str|None    (optional) an identifier for the input 
+                                    queries/strings for use when constructing 
+                                    the filenames for saved activations
+    :param layer_name_func : callable:None      (optional) function to rename 
+                                                layers when writing the files
+
+
+    :return: dict from model.generate 
     """
     # check if saving 
     if save_to_disc:
@@ -528,17 +548,24 @@ def inference_with_activations(input:dict, layers:list[str], model,
     saved_activations = restructure_activation_dict(saved_activations, 
                                             n_replicates=num_return_sequences)
     
-    # configure output
-    outdict = {
-        "layers" : layers,
-        "activations" : saved_activations,
-    }
-    if return_outputs:
-        outdict.update(outputs)
+    # saving
+    if save_to_disc:
+        save_activations_to_disc(activations=saved_activations,
+                                 save_path=save_path,
+                                 input_name=input_name,
+                                 weight_name_function=layer_name_func)
     
-    print(outdict.keys())
+    # configure output
+    # outdict = {
+    #     "layers" : layers,
+    #     "activations" : saved_activations,
+    # }
+    # if return_outputs:
+    #     outdict.update(outputs)
+    
+    print(outputs)
 
-    return outdict
+    return outputs
 
 
 def restructure_activation_dict(saved_activations:dict, n_replicates:int,
@@ -654,24 +681,23 @@ def save_activations_to_disc(activations:dict, save_path:str,
         if weight_name_function is not None:
             layer_name = weight_name_function(layer_name)
 
-        # check if the activation is a tuple
-        if isinstance(act, tuple):
-            # save each tensor in the tuple in a safetensor file
-            for i, tensor in enumerate(act):
-                filename = f"{layer_name}___{input_name}.safetensors" if \
+        # get the filename and filepath
+        filename = f"{layer_name}___{input_name}.safetensors" if \
                            input_name != "" else f"{layer_name}.safetensors"
+        filepath = os.path.join(save_path, filename)
 
-                filename = f"{layer_name}_activation_{i}.pt"
-                filepath = os.path.join(save_path, filename)
-                torch.save(tensor, filepath)
+        # if in format of a tuple, save a dictionary of tensors
+        if isinstance(act, tuple):
+            assert len(act) == 2, "activations must be a tuple of length 2"
+            to_save = {
+                "input_activations": act[0], 
+                "generation_activations": act[1]
+            }
         else:
-            # save the tensor directly
-            filename = f"{layer_name}_activation.pt"
-            filepath = os.path.join(save_path, filename)
-            torch.save(act, filepath)
-
-
-
+            to_save = act
+        
+        # save the tensor(s) to disc
+        save_file(to_save, filepath)
 
     return
 
