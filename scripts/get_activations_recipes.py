@@ -27,11 +27,12 @@ from safetensors.torch import save_file
         #              Set Parameters              #
 ###############################################################################
 
-count = 1
+count = 2
 name = f"recipe_activations{count}"
 
 description = \
-            "test getting activations for specific query recipes"
+            "test getting activations for specific query recipes" \
+            "and saving to file"
 
 base_model_id = "meta-llama/Llama-3.2-1B-Instruct"
 peft_model_id = "../results/test_finetune_llama_yahoo9_4/checkpoint-77885"
@@ -90,11 +91,12 @@ inputs = tuned.tokenizer(sampled_data['example'],
                          max_length=256, return_tensors="pt")
 
 ## Do inference with activations
-outputs = tuned.get_activations(inputs, layer_list,
+outputs = tuned.inference_with_activations(inputs, layer_list,
                                  num_return_sequences=n_replicates,
                                  max_length=512,
                                  states=False,
                                  attention=False)
+
 # change device to cpu
 dev = torch.device('cpu')
 outputs = analysis.move_output_tensors(outputs, dev)

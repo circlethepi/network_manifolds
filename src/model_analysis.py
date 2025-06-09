@@ -12,6 +12,7 @@ from safetensors import safe_open
 from safetensors.torch import save_file, load_file
 
 from src.utils import check_if_null, get_device
+import textwrap
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #               Accessing HuggingFace models and performing analysis   
@@ -25,27 +26,53 @@ GLOBAL_ANALYSIS_DIR = "/weka/home/mohata1/scratchcpriebe1/MO/network_manifolds/r
 
 
 # Memory stuff
-def memoize(savepath, compute, recompute=False, device="cuda"):
+def memoize(savepath, compute:callable, recompute=False, device="cuda"):
     """
+    Saving and checking disc for computed quantity
+
+    :param savepath :   the path to save the tensors to
+    :param compute : callable   callable with no arguments to compute
+    :param recompute : bool     whether to force recomputation 
+    
     """
     device = torch.device(device)
 
+    
     if not isinstance(savepath, Path):
-        path = Path(savepath)
+        savepath = Path(savepath)
 
-    if (not recompute) and path.exists():
+    if (not recompute) and savepath.exists():
         # load the cached result
-        print(f"Loading cached result from {path}")
-        return torch.load(path, map_location=device)
+        print(f"Loading cached result from {savepath}")
+
+        tensors = {}
+        with safe_open(savepath, framework='.pt') as f:
+            for key in f.keys():
+                tensors[key] = f.get_tensor(key)
+        
+        # WISHLIST only get part of the tensor ?
+        # with f.get_slice("")
+
+        # return torch.load(savepath, map_location=device)
+        return tensors
     else:
         # compute the result
-        print(f"Computing result and saving to {path}")
+        print(f"Computing result and saving to {savepath}")
         result = compute()
-        torch.save(result, path)
+        # torch.save(result, savepath)
+        # save with huggingface safetensors
+        save_files(result, savepath)
 
         return result
 
 
+def query_cache(savename:str, cache_dict:dict, compute:callable, recompute=False):
+    """
+    Saving and checking cache for computed quantity
+    """
+    if recompute or savename not in cache_dict:
+        cache_dict[savename] = compute()
+    return cache_dict[savename]
 
 
 
@@ -110,6 +137,28 @@ class LoraAnalysis:
 
     def to(self, device):
         self.model.to(device)
+
+
+    def memoize(self, savename:Union[str, Path], compute:callable, 
+                recompute=False, save_to_disc=True, save_to_cache=True,
+                device=None):
+        """ Checks for a computation to disc and/or cache """
+
+        device = check_if_null(device, self.device)
+
+        if save_to_disc:
+            savepath = os.path.join(self.cache_file_path, 
+                                    savename + ".safetensors")
+            compute = lambda compute_in=compute: memoize(savepath, 
+                                                         compute=compute_in, 
+                                                         recompute=recompute, 
+                                                         device=device)
+        if save_to_cache:
+            compute = lambda compute_in=compute: query_cache(savename, 
+                                                            compute=compute_in, 
+                                                        recompute=recompute)
+            
+        return compute()
 
 
 
@@ -277,7 +326,7 @@ class LoraAnalysis:
         return outputs
     
 
-    def get_activations(self, inputs:dict, layers:list[str], 
+    def inference_with_activations(self, inputs:dict, layers:list[str], 
                         return_outputs:bool=True, states:bool=True, 
                         attention:bool=True,
                         num_return_sequences:int=1,
@@ -320,6 +369,31 @@ class LoraAnalysis:
         return outputs
 
     # def pipe_inference(self, inputs:dict, s)
+
+    # def generate_with_activations(self, inputs:dict, layers:list[str], 
+    #                     return_outputs:bool=True, states:bool=True, 
+    #                     attention:bool=True,
+    #                     num_return_sequences:int=1,
+    #                     max_length:int=512,
+
+    #                     input_name:Optional[str]=None,
+                        
+    #                     recompute:bool=False,
+    #                     save_to_disc:bool=True,
+    #                     save_to_cache:bool=False):
+    #     """
+    #     Do inference for generation and collect activations
+    #     Inputs should be a tokenized dictionary and layers in the form of an
+    #     attribute path. 
+
+    #     """
+    #     # WISHLIST a way to get the desired layers from numbers and proj type
+    #     # TODO documentation for this method
+
+
+
+
+    #     return
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -473,7 +547,7 @@ def inference_with_activations(input:dict, layers:list[str], model,
                                # saving things
                                concat_activations:bool=True,
                                save_to_disc:bool=True,
-                               save_path:Optional[str]=None,
+                               save_dir:Optional[str]=None,
                                input_name:Optional[str]=None,
                                layer_name_func:Optional[callable]=None):
     """ function to get model activations at the specified layers for the given
@@ -510,13 +584,13 @@ def inference_with_activations(input:dict, layers:list[str], model,
     """
     # check if saving 
     if save_to_disc:
-        if save_path is None:
+        if save_dir is None:
             raise ValueError("save_path must be specified if save_to_disc is True")
         else:
-            save_path = Path(save_path)
-            if not save_path.exists():
-                print(f"Creating directory {save_path}")
-                save_path.makedirs(parents=True, exist_ok=True)
+            save_dir = Path(save_dir)
+            if not save_dir.exists():
+                print(f"Creating directory {save_dir}")
+                os.makedirs(parents=True, exist_ok=True)
 
     model.eval()
 
@@ -552,12 +626,13 @@ def inference_with_activations(input:dict, layers:list[str], model,
     # process the activations
     # TODO add option to not
     saved_activations = restructure_activation_dict(saved_activations, 
-                                            n_replicates=num_return_sequences)
+                                            n_replicates=num_return_sequences,
+                                            concat_all=concat_activations)
     
     # saving
     if save_to_disc:
         save_activations_to_disc(activations=saved_activations,
-                                 save_path=save_path,
+                                 save_dir=save_dir,
                                  input_name=input_name,
                                  layer_name_function=layer_name_func)
     
@@ -569,10 +644,11 @@ def inference_with_activations(input:dict, layers:list[str], model,
     # if return_outputs:
     #     outdict.update(outputs)
     
-    print(outputs)
-
-    return outputs
-
+    # print(outputs)
+    if return_outputs:
+        return outputs
+    else:
+        return
 
 def restructure_activation_dict(saved_activations:dict, n_replicates:int,
                                 concat_all:bool=True
@@ -645,7 +721,7 @@ def restructure_activation_dict(saved_activations:dict, n_replicates:int,
     return restructured
 
 
-def save_activations_to_disc(activations:dict, save_path:str,
+def save_activations_to_disc(activations:dict, save_dir:str,
                             input_name:Optional[str]=None,
                             layer_name_function:Optional[callable]=None):
     """
@@ -665,8 +741,8 @@ def save_activations_to_disc(activations:dict, save_path:str,
 
     """
 
-    if not os.path.exists(save_path):
-        os.makedirs(save_path, exist_ok=True)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
     
     # check if the activations are in the correct format
     if not isinstance(activations, dict):
@@ -690,7 +766,7 @@ def save_activations_to_disc(activations:dict, save_path:str,
         # get the filename and filepath
         filename = f"{layer_name}___{input_name}.safetensors" if \
                            input_name != "" else f"{layer_name}.safetensors"
-        filepath = os.path.join(save_path, filename)
+        filepath = os.path.join(save_dir, filename)
 
         # if in format of a tuple, save a dictionary of tensors
         if isinstance(act, tuple):
@@ -700,8 +776,17 @@ def save_activations_to_disc(activations:dict, save_path:str,
                 "generation_activations": act[1]
             }
         else:
-            to_save = act
-        
+
+            if not isinstance(act, torch.Tensor):
+                raise TypeError(textwrap.fill(textwrap.dedent("""
+                    Single activation should be a torch.Tensor.
+                    You might be trying to save the wrong thing?
+                    """)))
+            
+            to_save = {
+                "activations": act
+            }
+            
         # save the tensor(s) to disc
         save_file(to_save, filepath)
 
