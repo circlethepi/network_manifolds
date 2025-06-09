@@ -27,7 +27,7 @@ from safetensors.torch import save_file
         #              Set Parameters              #
 ###############################################################################
 
-count = 2
+count = 3
 name = f"recipe_activations{count}"
 
 description = \
@@ -41,7 +41,8 @@ savefile = f'../results/{name}.pkl'
 
 # specify which parameters to get activations from
 layer_list = [
-    f"model.model.layers[0].self_attn.{p}_proj" for p in "q"
+    f"model.model.layers[0].self_attn.{p}_proj.lora_{M}.default" for p in "q" \
+                                                                 for M in "AB"
 ]
 
 # recipe sampling parameters
@@ -95,7 +96,9 @@ outputs = tuned.inference_with_activations(inputs, layer_list,
                                  num_return_sequences=n_replicates,
                                  max_length=512,
                                  states=False,
-                                 attention=False)
+                                 attention=False,
+                                 
+                                 input_name="r10_q10_yahoo89_s5.5")
 
 # change device to cpu
 dev = torch.device('cpu')
@@ -104,6 +107,7 @@ outputs = analysis.move_output_tensors(outputs, dev)
 
 # package for saving
 outputs['description'] = description
+print(description)
 
 with open(savefile, 'wb') as file:
     pickle.dump(outputs, file)

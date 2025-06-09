@@ -11,7 +11,7 @@ from peft import PeftConfig, PeftModel
 from safetensors import safe_open
 from safetensors.torch import save_file, load_file
 
-from src.utils import check_if_null, get_device
+from src.utils import check_if_null, get_device, is_int_or_int_string
 import textwrap
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -113,6 +113,7 @@ class LoraAnalysis:
         
         # set default weight naming function 
         self.layer_name_function = get_layer_name_function(base_model_path)
+        self.layer_name_dict = None
 
         
         # caching
@@ -229,9 +230,14 @@ class LoraAnalysis:
 
         if cache and cache_key in self.cache.keys():
             return self.cache[cache_key]
+        
+        elif cache and self.layer_name_dict is not None:
+            return list(self.layer_name_dict.values())
+        
         elif cache and "lora_weights" in self.cache.keys():
             # if we have the weights, we can get the layer names from there
             return list(self.cache["lora_weights"].keys())
+
 
         # otherwise, load the tensor file and get the layer names
         if alternate_tensor_name is not None:
@@ -287,19 +293,48 @@ class LoraAnalysis:
         cache_key = "lora_layer_names"
         if cache and cache_key in self.cache.keys():
             return self.cache[cache_key]
+        elif self.layer_name_dict is not None:
+            return list(self.layer_name_dict.keys())
 
         # get the weight name function
         elnf = self.find_layer_name_func(custom_elnf=layer_name_function)
 
-        names = [elnf(atr_path) for atr_path in\
-                 self.get_lora_layer_attribute_names(
+        atr_names = self.get_lora_layer_attribute_names(
                                 alternate_tensor_name=alternate_tensor_name, 
-                                cache=cache)]
+                                cache=cache)
+        layer_name_dict = dict(zip(
+            [elnf(a) for a in atr_names],
+            atr_names,
+        ))
+
+        names = list(layer_name_dict.keys())
+        self.layer_name_dict = layer_name_dict
+
         names.sort()
         
         if cache:
             self.cache["lora_layer_names"] = names
+
         return names
+    
+
+    def get_layer_names(self, rules:Optional[Union[list, str, int]],
+                        int_pad:int=2,
+                        attributes:bool=False):
+        """
+        returns the layer name (renamed from layer name function) or attribute
+        names of the given functions
+        """
+        all_names = filter_by_rules(all_strings=self.lora_layer_names, 
+                                    int_pad=int_pad,
+                                    rules=rules)
+
+        # check if also returning attribute names
+        if attributes:
+            return {x: self.layer_name_dict[x] for x in all_names}
+        else:
+            return all_names
+                
 
 
     def inference(self, inputs:dict, states:bool=False, attention:bool=False):
@@ -359,8 +394,9 @@ class LoraAnalysis:
             attention=attention,
             num_return_sequences=num_return_sequences,
             max_length=max_length,
+
             # saving
-            save_path=act_save_path,
+            save_dir=act_save_path,
             save_to_disc=True,
             input_name=input_name,
             layer_name_func=self.layer_name_function
@@ -459,6 +495,43 @@ def get_layer_name_function(base_model_path:str):
               "function if necessary where applicable.")
         return
     
+
+def pad_number(num, pad):
+    return f"{int(num):0{pad}d}"
+
+
+def filter_by_rules(all_strings:list, rules:Optional[Union[list, str, int]],
+                    int_pad:int=2):
+    """
+    Filters all_strings according to the substring rules
+    - if rule is int or a string of int: keep strings containing ints
+    padded to length of int_pad
+    - if rule is str: keep strings containing the rule as a substring
+    - if rule is list: apply listed rules as as "OR"s
+
+    Each rule is generally an "AND" filtering rule. Rules that are given as 
+    lists are "OR"s 
+    """
+    filtered = all_strings.copy()
+
+    for k in rules:
+        print(k)
+        if isinstance(k, list):
+            sub_rules = [pad_number(j, int_pad) for j in k if is_int_or_int_string(j)]
+            sub_rules += [j for j in k if not is_int_or_int_string(j)]
+            filtered = [s for s in filtered if any(sub in s \
+                                                   for sub in sub_rules)]
+        elif is_int_or_int_string(k):
+            substr = pad_number(k, int_pad)
+            filtered = [s for s in filtered if substr in s]
+        elif isinstance(k, str):
+            filtered = [s for s in filtered if k in s]
+        else:
+            # Ignore unsupported types
+            continue
+    
+    return list(filtered)
+
 
 def make_cache_dir_name(base_model_path:str, peft_path:str, 
                         custom_name:Optional[str]=None):
@@ -585,7 +658,8 @@ def inference_with_activations(input:dict, layers:list[str], model,
     # check if saving 
     if save_to_disc:
         if save_dir is None:
-            raise ValueError("save_path must be specified if save_to_disc is True")
+            raise ValueError(textwrap.fill(textwrap.dedent("""save_path must be 
+                                        specified if save_to_disc is True""")))
         else:
             save_dir = Path(save_dir)
             if not save_dir.exists():
@@ -622,6 +696,8 @@ def inference_with_activations(input:dict, layers:list[str], model,
     for ell in layers:
         ell = get_nested_attr(model, ell)
         ell._forward_hooks.clear()
+
+    # print(saved_activations)
 
     # process the activations
     # TODO add option to not
@@ -683,7 +759,7 @@ def restructure_activation_dict(saved_activations:dict, n_replicates:int,
     restructured = {}
 
     for layer_name, activations in saved_activations.items():
-    
+        
         nrb, inlen, hidden_size = activations[0].shape 
         batch_size = nrb // n_replicates # TODO do I need this?
 
@@ -746,12 +822,14 @@ def save_activations_to_disc(activations:dict, save_dir:str,
     
     # check if the activations are in the correct format
     if not isinstance(activations, dict):
-        raise ValueError("activations must be a dictionary of layer names to "
-                         "activations")
+        raise ValueError(textwrap.fill(textwrap.dedent("""activations must be a 
+                                dictionary of layer names to activations""")))
     if not all(isinstance(v, (torch.Tensor, tuple)) for v in activations.values()):
-        raise ValueError("activations must be a dictionary of layer names to "
-                         "activations, where each activation is a tensor or "
-                         "a tuple of tensors")
+        raise ValueError(textwrap.fill(textwrap.dedent("""
+                        activations must be a dictionary of layer names to 
+                        activations, where each activation is a tensor or a 
+                        tuple of tensors
+                    """)))
     
     # check if input_name is provided
     input_name = check_if_null(input_name, "")

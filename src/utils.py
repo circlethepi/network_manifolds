@@ -75,8 +75,15 @@ class AverageMeter(object):
         return fmtstr.format(**self.__dict__)
 
 
+## Type and Value Checking
 def check_if_null(named_param_or_var, alternate):
     """ checks if an object exists and returns the given alternate if not
     """
     return named_param_or_var if named_param_or_var is not None else alternate
 
+def is_int_or_int_string(x):
+    if isinstance(x, int):
+        return True
+    if isinstance(x, str) and x.isdigit():
+        return True
+    return False
