@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import random
 import os
+import textwrap
 
 """
 Utility functions
@@ -87,3 +88,6 @@ def is_int_or_int_string(x):
     if isinstance(x, str) and x.isdigit():
         return True
     return False
+
+def error_display(msg:str):
+    return textwrap.fill(textwrap.dedent(msg))

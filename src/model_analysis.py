@@ -13,6 +13,7 @@ from safetensors.torch import save_file, load_file
 
 from src.utils import check_if_null, get_device, is_int_or_int_string
 import textwrap
+import pickle
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #               Accessing HuggingFace models and performing analysis   
@@ -380,6 +381,7 @@ class LoraAnalysis:
 
         # TODO add disc saving functionality
         act_save_path = os.path.join(self.cache_file_path, "activations")
+        out_save_path = os.path.join(self.cache_file_path, "outputs")
 
         if not os.path.exists(act_save_path):
             print(f"Creating activation directory\n{act_save_path}")
@@ -399,7 +401,9 @@ class LoraAnalysis:
             save_dir=act_save_path,
             save_to_disc=True,
             input_name=input_name,
-            layer_name_func=self.layer_name_function
+            layer_name_func=self.layer_name_function,
+
+            output_dir=out_save_path,
         )
 
         return outputs
@@ -622,7 +626,8 @@ def inference_with_activations(input:dict, layers:list[str], model,
                                save_to_disc:bool=True,
                                save_dir:Optional[str]=None,
                                input_name:Optional[str]=None,
-                               layer_name_func:Optional[callable]=None):
+                               layer_name_func:Optional[callable]=None,
+                               output_dir=Optional[Union[str, Path]]=None):
     """ function to get model activations at the specified layers for the given
     input data/queries
     
@@ -651,6 +656,8 @@ def inference_with_activations(input:dict, layers:list[str], model,
                                     the filenames for saved activations
     :param layer_name_func : callable:None      (optional) function to rename 
                                                 layers when writing the files
+    :param output_dir : str|Path|None   (optional) path to save output tokens
+                                        and description
 
 
     :return: dict from model.generate 
@@ -664,10 +671,16 @@ def inference_with_activations(input:dict, layers:list[str], model,
             save_dir = Path(save_dir)
             if not save_dir.exists():
                 print(f"Creating directory {save_dir}")
-                os.makedirs(parents=True, exist_ok=True)
+                os.makedirs(save_dir, exist_ok=True)
+        
+        if return_outputs and output_dir is not None:
+            output_dir = Path(output_dir)
+            if not output_dir.exists():
+                print(f"Creating directory {output_dir}")
+                os.makedirs(output_dir, exist_ok=True)
+            
 
     model.eval()
-
 
     saved_activations = dict()
         
@@ -712,7 +725,18 @@ def inference_with_activations(input:dict, layers:list[str], model,
                                  save_dir=save_dir,
                                  input_name=input_name,
                                  layer_name_function=layer_name_func)
-    
+        
+        if return_outputs and not check_if_null(output_dir, False):
+            filename = check_if_null(input_name, "OUTPUTS") + ".pkl"
+            output_filename = os.path.join(output_dir, filename)
+
+            # WISHLIST save hidden states and attentions to a different place
+            # (will require restructuring them somehow, want safetensors also)
+
+            print(f"saving output sequences to {output_filename}")
+            with open(output_filename, "wb") as file:
+                pickle.dump(outputs, file)
+                
     # configure output
     # outdict = {
     #     "layers" : layers,

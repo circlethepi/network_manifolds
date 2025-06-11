@@ -3,6 +3,8 @@ import numpy as np
 import random
 import datasets
 
+from src.utils import error_display
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #               Processing Datasets for Causal Language Models   
 #                          Merrick Ohata 2025, JHU AMS         
@@ -150,8 +152,6 @@ def create_hull_grid(n:int, incs:int=1):
     return
 
 
-
-
 def get_sample_counts(recipe, n_samples):
     """
     Get the number of samples for each class based on the recipe.
@@ -199,9 +199,9 @@ def sample_from_datasets(count_dict:dict, *dataset_list, seed:int=0):
 
 
 
-def sample_from_recipe(recipe, n, *dataset_list):
+def sample_from_recipe(recipe, n, seed:int=0, *dataset_list):
     """
-    Samples r instances of n samples from a given recipe/sampling vector 
+    Samples 1 instance of n samples from a given recipe/sampling vector 
 
     :param recipe: sampling vector
     :param n: number of samples in the resulting dataset
@@ -214,6 +214,43 @@ def sample_from_recipe(recipe, n, *dataset_list):
     # get the counts
     count_dict = get_sample_counts(recipe, n)
     # sample from the datasets
-    sampled_datasets = sample_from_datasets(count_dict, *dataset_list)
+    sampled_datasets = sample_from_datasets(count_dict, 
+                                            *dataset_list, 
+                                            seed=seed)
 
     return sampled_datasets
+
+
+def sample_from_yahoo_recipe(recipe, n:int, split="test"):
+    """
+    samples 1 instance of n samples from the Yahoo Answers Dataset from a given
+    recipe/sampling vector
+
+    :param recipe: sampling vector. Should be 10 entries, one for each of the 
+                                    topics in the Yahoo Answers Dataset
+    :param n: number of samples in the resulting dataset
+    :param split: the data split to use
+
+    :return sampled_dataset: datasets.arrow_dataset.Dataset
+    """
+
+    # check that the split is valid
+    if split not in ("test", "train"):
+        message = """
+        split must be either 'test' or 'train' for the Yahoo Answers Dataset.
+        """
+        raise ValueError(error_display(message))
+    if not len(recipe) == 10:
+        message = """
+        Recipe must have 10 entries for the Yahoo Answers Dataset
+        """
+        raise ValueError(error_display(message)) 
+
+    # get the split yahoo dataset
+    yahoo_set = datasets.load_dataset("yahoo_answers_topics", split=split)
+    yahoo_split = topic_split_yahoo(yahoo_set, topics="all")[0]
+    
+    # get the sampled data
+    sampled = sample_from_recipe(recipe, n, *yahoo_split.values())
+
+    return sampled
