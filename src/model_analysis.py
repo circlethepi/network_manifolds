@@ -673,7 +673,8 @@ def inference_with_activations(input:dict, layers:list[str], model,
         
     def get_activations(name):
         def hook(self, inputs, output):
-            saved_activations[name].append(inputs[0].detach())
+            # saved_activations[name].append(inputs[0].detach())
+            saved_activations[name].append(output.detach())
         return hook
 
     # make the hooks
@@ -725,6 +726,7 @@ def inference_with_activations(input:dict, layers:list[str], model,
         return outputs
     else:
         return
+
 
 def restructure_activation_dict(saved_activations:dict, n_replicates:int,
                                 concat_all:bool=True

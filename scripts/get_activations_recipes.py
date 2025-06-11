@@ -27,12 +27,12 @@ from safetensors.torch import save_file
         #              Set Parameters              #
 ###############################################################################
 
-count = 3
+count = 4
 name = f"recipe_activations{count}"
 
 description = \
             "test getting activations for specific query recipes" \
-            "and saving to file"
+            "and saving to file. Activations changed to output"
 
 base_model_id = "meta-llama/Llama-3.2-1B-Instruct"
 peft_model_id = "../results/test_finetune_llama_yahoo9_4/checkpoint-77885"
@@ -98,7 +98,7 @@ outputs = tuned.inference_with_activations(inputs, layer_list,
                                  states=False,
                                  attention=False,
                                  
-                                 input_name="r10_q10_yahoo89_s5.5")
+                                 input_name="r10_q10_yahoo89_s5.5_output")
 
 # change device to cpu
 dev = torch.device('cpu')
