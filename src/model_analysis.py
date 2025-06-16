@@ -627,7 +627,7 @@ def inference_with_activations(input:dict, layers:list[str], model,
                                save_dir:Optional[str]=None,
                                input_name:Optional[str]=None,
                                layer_name_func:Optional[callable]=None,
-                               output_dir=Optional[Union[str, Path]]=None):
+                               output_dir:Optional[Union[str, Path]]=None):
     """ function to get model activations at the specified layers for the given
     input data/queries
     
@@ -965,3 +965,17 @@ def move_to_device(x, device:Union[str, torch.device]):
         return tuple(t.to(device) for t in x)
     else:
         return x.to(device)
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                           Looking at Activations            
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
+class Activations:
+
+    """
+    Class to handle activations loading and some other things
+    """
