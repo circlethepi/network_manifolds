@@ -62,7 +62,7 @@ def memoize(savepath, compute:callable, recompute=False, device="cuda"):
         result = compute()
         # torch.save(result, savepath)
         # save with huggingface safetensors
-        save_files(result, savepath)
+        save_file(result, savepath)
 
         return result
 
@@ -757,6 +757,9 @@ def restructure_activation_dict(saved_activations:dict, n_replicates:int,
                                 # max_length:int
                                 ):
     """
+    Averages and restructures the outputs of a saved activation dictionary for
+    further analysis (and packages them nicely to be saved as safetensors)
+
     :param saved_activations : dict [ layer_name -> list(activations) ]
     :param n_replicates : int   number of replicates for inputs
     :param max_length : int   maximum length of the input sequence
@@ -778,7 +781,10 @@ def restructure_activation_dict(saved_activations:dict, n_replicates:int,
         1st entry : activations for the input string
             (batch_size, input_length, hidden_size)
         2nd entry : activations for generation
-            (batch_size, max_length - input_length, hidden_size)
+            (batch_size, max_length - input_length - 1, hidden_size)
+
+    If concat_all, then the activation is a tensor of shape
+            (batch_size, max_length - 1, hidden_size)
         
     """
 

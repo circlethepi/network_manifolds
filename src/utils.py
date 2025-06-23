@@ -77,10 +77,18 @@ class AverageMeter(object):
 
 
 ## Type and Value Checking
-def check_if_null(named_param_or_var, alternate):
-    """ checks if an object exists and returns the given alternate if not
+def check_if_null(named_param_or_var, dne_alt, exists_alt=None):
+    """ 
+    checks if an object exists and returns the given alternate if not
+    option to return a separate value if the object does exist also
+
+    :param named_param_or_var: the object to check if None
+    :param dne_alt: alternate value if it is None
+    :param exists_alt: alternate value if it exists (default: None returns the 
+                       original object)
     """
-    return named_param_or_var if named_param_or_var is not None else alternate
+    exists_alt = exists_alt if exists_alt is not None else named_param_or_var
+    return exists_alt if named_param_or_var is not None else dne_alt
 
 def is_int_or_int_string(x):
     if isinstance(x, int):
@@ -89,5 +97,5 @@ def is_int_or_int_string(x):
         return True
     return False
 
-def error_display(msg:str):
+def display_message(msg:str):
     return textwrap.fill(textwrap.dedent(msg))

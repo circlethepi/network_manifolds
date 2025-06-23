@@ -3,7 +3,7 @@ import numpy as np
 import random
 import datasets
 
-from src.utils import error_display
+from src.utils import display_message
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #               Processing Datasets for Causal Language Models   
@@ -239,12 +239,12 @@ def sample_from_yahoo_recipe(recipe, n:int, split="test"):
         message = """
         split must be either 'test' or 'train' for the Yahoo Answers Dataset.
         """
-        raise ValueError(error_display(message))
+        raise ValueError(display_message(message))
     if not len(recipe) == 10:
         message = """
         Recipe must have 10 entries for the Yahoo Answers Dataset
         """
-        raise ValueError(error_display(message)) 
+        raise ValueError(display_message(message)) 
 
     # get the split yahoo dataset
     yahoo_set = datasets.load_dataset("yahoo_answers_topics", split=split)
