@@ -14,7 +14,7 @@ from src.utils import check_if_null, display_message
 #                          Merrick Ohata 2025, JHU AMS         
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 # 
-#   description of the file here
+#   Helpers and handling of linear algebra and related calculations.
 #
 
 
@@ -383,6 +383,7 @@ def check_matrix(mat, decomposition:Optional[str]=None,
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                            Matrix Covariances           
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+# WISHLIST device moving for all of these calculations
 def compute_covariance(mat, rank:Optional[Union[float, int]]=float("inf"), 
                        full_matrices:bool=False):
     """
@@ -642,7 +643,7 @@ def compute_pairwise_alignments(*matrices, decomposition="svd", keys=None):
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                               Matrix Similarities          
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-def compute_bw_sim(mat1, mat2):
+def compute_bw_sim(mat1, mat2, normalize_spectrum=False):
     """
     Computes the Bures-Wasserstein 2 similarity between two covariance matrices
     ||C_1^{1/2} C_2^{1/2}||_{nuc} / sqrt{TrC_1TrC_2}
@@ -650,6 +651,15 @@ def compute_bw_sim(mat1, mat2):
     # check and/or convert to Matrix objects
     mat1 = check_matrix(mat1, decomposition="eigh")
     mat2 = check_matrix(mat2, decomposition="eigh")
+
+    if normalize_spectrum:
+        mat1 = Matrix(left_vectors=mat1.left_vectors,
+                      values=mat1.values /sum(mat1.values),
+                      right_vectors=mat1.right_vectors)
+        mat2 = Matrix(left_vectors=mat2.left_vectors,
+                      values=mat2.values / sum(mat2.values),
+                      right_vectors=mat2.right_vectors)
+
 
     # check that these are covariances
     message = """Both matrices must be covariance matrices"""
@@ -668,8 +678,14 @@ def compute_bw_sim(mat1, mat2):
     # get the denominator
     f_tr = np.linalg.trace if backend == np else torch.trace
     denom = backend.sqrt(f_tr(mat1.matrix) * f_tr(mat2.matrix))
+    sim = backend.abs(numer / denom)
+
+    # since that numerical instability be honkin
+    climp = backend.clip if backend == np else torch.clamp
+    # eps = backend.finfo(mat1.matrix.dtype).eps
+    sim = climp(sim, 0, 1)
     
-    return numer / denom
+    return sim
 
 def compute_frobenius_sim(mat1, mat2):
     """
@@ -727,7 +743,7 @@ def matrix_similarity(mat1, mat2, sim_type="bw"):
 
 
 def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"), aligned=False,
-                             align_dict:Optional[dict]=None,
+                             align_dict:Optional[dict]=None, numpy=True,
                              ):
     """
     Computes the similarity matrix between a list of matrices according to the
@@ -744,6 +760,10 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"), aligne
 
                     align_dict[i, j] -> A  s.t.  A @ matrices[j] is aligned to 
                                                     matrices[i]
+    
+    :param numpy: bool      whether to return the similarity matrix as a numpy
+                            array (this is useful if you want to pass it into 
+                            sklearn's MDS implementation). Default: True 
 
     :return sim_mat: torch.Tensor|np.array
         the similarity matrix of shape (n, n) where n is the number of matrices
@@ -759,7 +779,7 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"), aligne
     
     # compute the similarity matrix
     n = len(matrices)
-    sim_mat = torch.eye(n, n)
+    sim_mat = torch.eye(n, n, dtype=torch.float64)
 
     # if align_dict is provided, then already aligned
     if not aligned:

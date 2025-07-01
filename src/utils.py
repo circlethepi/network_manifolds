@@ -5,8 +5,21 @@ import os
 import textwrap
 
 """
-Utility functions
+General utility functions for everything and some global variables
 """
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                               Global Variables           
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                               Utility Functions :)           
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
 
 def set_seed(seed):
     """set the random seed everywhere relevant"""
@@ -30,7 +43,9 @@ def make_logfile(filepath):
 
 
 def print_and_write(message, *files):
-    """files should be open"""
+    """prints message to console and writes to given files. 
+    (files should be open)
+    """
     print(message)
     for file in files:
         if file is not None:
@@ -38,18 +53,22 @@ def print_and_write(message, *files):
     return
 
 def close_files(*files):
-    """closes logs"""
+    """closes files"""
     for file in files:
         if file is not None:
             file.close()
     return
 
 def nice_interval(n: int):
+    """Determines if an integer is nice. Nice integers are of the form
+        {1, 2, 5} x 10^k
+    """
     if n == 0:
         return True
     else:
         pwr = 10 ** int(np.log10(n))
-        nice = True if (n == 0 or (n % pwr == 0 and n // pwr in (1, 2, 5))) else False
+        nice = True if (n == 0 or (n % pwr == 0 and n // pwr in (1, 2, 5))) \
+            else False
         return nice
 
 
