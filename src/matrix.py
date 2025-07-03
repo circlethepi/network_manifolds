@@ -4,6 +4,7 @@ import random
 import os
 import re
 from typing import Optional, Union
+from tqdm import tqdm
 
 
 from src.utils import check_if_null, display_message
@@ -507,7 +508,8 @@ def compute_pairwise_covariances(*matrices, decomposition="svd", keys=None,
 
     # compute the pairwise covariances
     cross_dict = {}
-    for key1, mat1 in matrix_dict.items():
+    for key1, mat1 in tqdm(matrix_dict.items(), 
+                           desc=f"Computing cross-covariances for {key1}"):
         for key2, mat2 in matrix_dict.items():
 
             if key1 == key2: # don't compute self-covariance
@@ -515,10 +517,8 @@ def compute_pairwise_covariances(*matrices, decomposition="svd", keys=None,
 
             # for symmetry
             if ( (key2, key1) in cross_dict ): 
-
-                if (key1 != key2) and symmetry: 
+                if symmetry: 
                     cross_dict[(key1, key2)] = cross_dict[(key2, key1)].T
-        
                 continue
 
             # if keys are distinct and not calculated already,
@@ -574,16 +574,14 @@ def convert_cross_cov_to_alignment(cross_cov_dict):
     """
     align_dict = {}
 
-    for key, cross_cov in cross_cov_dict.items():
-
+    for key, cross_cov in tqdm(cross_cov_dict.items(), 
+                        desc=f"Converting cross-covariance dict to alignment"):
         cross_cov = check_matrix(cross_cov, decomposition="svd")
 
         # get the alignment matrix
         alignment = Matrix(cross_cov.left_vectors @ cross_cov.right_vectors,
                            decomposition="svd")
-        
         align_dict[key] = alignment
-
     return align_dict
 
 
@@ -742,8 +740,9 @@ def matrix_similarity(mat1, mat2, sim_type="bw"):
         raise ValueError(display_message(message))
 
 
-def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"), aligned=False,
-                             align_dict:Optional[dict]=None, numpy=True,
+def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"), 
+                             aligned=False, align_dict:Optional[dict]=None, 
+                             numpy=True,
                              ):
     """
     Computes the similarity matrix between a list of matrices according to the
@@ -800,7 +799,7 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"), aligne
         
     
     # calculate the similarities and make upper triangular matrix
-    for i in range(n):
+    for i in tqdm(range(n), desc=f"Calculating similarities for matrix {i}"):
         for j in range(i+1, n):
 
             mat_i = matrices[i]

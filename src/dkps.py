@@ -6,7 +6,7 @@ import re
 from typing import Optional, Union
 
 from src.utils import check_if_null, display_message
-import src.matrices as linalg
+import src.matrix as matrix
 
 from sklearn import manifold
 
@@ -175,7 +175,7 @@ class SimilaritySpace:
         
         return coords
     
-    
+
     
 
     

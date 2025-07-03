@@ -11,7 +11,7 @@ General utility functions for everything and some global variables
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                               Global Variables           
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-
+GLOBAL_PROJECT_DIR = "/weka/home/mohata1/scratchcpriebe1/MO/network_manifolds/"
 
 
 
