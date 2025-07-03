@@ -508,9 +508,9 @@ def compute_pairwise_covariances(*matrices, decomposition="svd", keys=None,
 
     # compute the pairwise covariances
     cross_dict = {}
-    for key1, mat1 in tqdm(matrix_dict.items(), 
-                           desc=f"Computing cross-covariances for {key1}"):
-        for key2, mat2 in matrix_dict.items():
+    for key1, mat1 in matrix_dict.items():
+        for key2, mat2 in tqdm(matrix_dict.items(),
+                               desc=f"Computing cross-covariances for {key1}"):
 
             if key1 == key2: # don't compute self-covariance
                 continue
@@ -799,8 +799,9 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"),
         
     
     # calculate the similarities and make upper triangular matrix
-    for i in tqdm(range(n), desc=f"Calculating similarities for matrix {i}"):
-        for j in range(i+1, n):
+    for i in range(n):
+        for j in tqdm(range(i+1, n), 
+                      desc=f"Calculating similarities for matrix {i+1}/{n}"):
 
             mat_i = matrices[i]
             mat_j = matrices[j]
@@ -817,9 +818,11 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"),
                 sim = torch.from_numpy(sim).item()
             sim_mat[i,j] = sim
             
-
     # make make symmetric
     sim_mat += sim_mat.triu(1).T
+
+    if numpy:
+        sim_mat = np.array(sim_mat)
 
     return sim_mat
 
