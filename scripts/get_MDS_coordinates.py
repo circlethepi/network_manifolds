@@ -46,7 +46,7 @@ print("PWD:  ", os.getcwd())
         #           Actually Doing Things          #
 ###############################################################################  
 
-for layer in tqdm(range(16), desc=description):
+for layer in tqdm(range(1, 16), desc=description):
 
     for similarity in "bw", "fro":
         count = f"{layer}_BW"
