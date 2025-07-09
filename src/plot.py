@@ -22,7 +22,7 @@ from src.utils import check_if_null, display_message
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                               Global Variables
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-GLOBAL_FONT_SIZE = 16           # my default: 16
+GLOBAL_FONT_SIZE = 24           # my default: 16
 GLOBAL_PLOT_DIR = 'plots/'
 DEFAULT_FIG_SIZE = (10, 8)      # default figure dimensions (w, h) inches
 
@@ -249,9 +249,8 @@ def plot_colorbar(mappable=None,
 def end_fig(show=True, savename=None, dir=None):
     """Shows and saves fig as indicated"""
 
-    if show:
-        plt.show()
-    
+    plt.tight_layout(pad=0.1)
+
     if check_if_null(savename, False):
         assert isinstance(savename, str), "Invalid filename"
         if not savename.endswith(GLOBAL_PLOT_FILETYPE):
@@ -263,7 +262,10 @@ def end_fig(show=True, savename=None, dir=None):
 
         plt.savefig(savepath, 
                     bbox_inches="tight", pad_inches=0,
-                    dpi=GLOBAL_DPI)
+                    dpi=GLOBAL_DPI, transparent=True)
+
+    if show:
+        plt.show()
         
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
