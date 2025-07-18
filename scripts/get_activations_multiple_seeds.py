@@ -46,11 +46,14 @@ recipes = [ #
     [1.0, 0.0],  # all from topic 8
     [0.0, 1.0],  # all from topic 9
 ]
-n_replicates = 100
-n_queries = 100
+n_replicates = 10
+n_queries = 40
 
 seeds = list(range(1, 11))
+# print(seeds)
 # 0 already stored!
+
+print(f"Running inference with {n_queries} with {n_replicates} each on {len(seeds)} seeds")
 
 
                 ############################################                   
@@ -61,8 +64,14 @@ seeds = list(range(1, 11))
 tuned = analysis.LoraAnalysis(base_model_path=base_model_id, 
                               peft_path=peft_model_id)
 
+print("Model loading complete. Collecting layer names...")
+
 # get the layers
-layer_list = list(tuned.get_layer_names(rules=["B"], attributes=True).values())
+layer_list = list(tuned.get_layer_names(rules=["B", "_o-proj"], attributes=True, 
+                                        weights=False).values())
+# print(layer_list)
+
+print("Layer names collected. Creating data split...")
 
 # load in the dataset
 yahoo_test = datasets.load_dataset("yahoo_answers_topics", split="train")
@@ -71,14 +80,14 @@ split_test = data.topic_split_yahoo(yahoo_test, topics=[8, 9])[0]
 print(split_test)
 
 for seed in seeds:
-    for rec in recipes:
+    for rec in tqdm(recipes, desc=f"seed {seed}"):
         recipe_name = f"t8={rec[0]}_t9={rec[1]}"
         ## make the query datasets
 
         # - sample according to recipe
-        sampled_data = data.sample_from_recipe(rec, n_queries,
-                                                *split_test.values(),
-                                                seed=seed)
+        print(seed)
+        sampled_data = data.sample_from_recipe(rec, n_queries, seed,
+                                                *split_test.values())
 
         # -- process the data into the inputs
         sampled_data = sampled_data.map(data.concat_yahoo)\
@@ -98,4 +107,5 @@ for seed in seeds:
                                         return_outputs=True,
                                         output_device=torch.device('cpu'))
 
-    print("\n\nFinished")
+
+print("\n\nFinished all seeds")

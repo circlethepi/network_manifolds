@@ -115,6 +115,7 @@ class LoraAnalysis:
         # set default weight naming function 
         self.layer_name_function = get_layer_name_function(base_model_path)
         self.layer_name_dict = None
+        self.layer_name_dict_weights = None
 
         
         # caching
@@ -223,32 +224,45 @@ class LoraAnalysis:
 
     def get_lora_layer_attribute_names(self, 
                                        alternate_tensor_name:Optional[str]=None,
-                                       cache:bool=True):
+                                       cache:bool=True,
+                                       weights:bool=True):
         """get the attribute names for each of the LoRA matrices
         useful for registering forward hooks
         """
         cache_key = "lora_attribute_names"
+        cache_key += "_weights" if weights else ""
+
+        def weights_to_acts(name):
+            # convert names for activation hooks vs accessing weights (default)
+            return name.replace("weight", "default")
 
         if cache and cache_key in self.cache.keys():
             return self.cache[cache_key]
         
-        elif cache and self.layer_name_dict is not None:
-            return list(self.layer_name_dict.values())
+        elif not weights and cache and self.layer_name_dict is not None:
+            layer_names = list(self.layer_name_dict.values())
+        
+        elif weights and cache and self.layer_name_dict_weights is not None:
+            layer_names = list(self.layer_name_dict.values())
         
         elif cache and "lora_weights" in self.cache.keys():
             # if we have the weights, we can get the layer names from there
-            return list(self.cache["lora_weights"].keys())
-
+            layer_names = list(self.cache["lora_weights"].keys())
 
         # otherwise, load the tensor file and get the layer names
-        if alternate_tensor_name is not None:
-            tensor_filename = alternate_tensor_name
         else:
-            tensor_filename = "adapter_model.safetensors"
-        tensor_path = os.path.join(self.peft_path, tensor_filename)
+            if alternate_tensor_name is not None:
+                tensor_filename = alternate_tensor_name
+            else:
+                tensor_filename = "adapter_model.safetensors"
+            tensor_path = os.path.join(self.peft_path, tensor_filename)
 
-        with safe_open(tensor_path, framework="pt") as file: 
-            layer_names = file.keys()
+            with safe_open(tensor_path, framework="pt") as file: 
+                layer_names = file.keys()
+                
+        # convert if necessary
+        if not weights:
+            layer_names = [weights_to_acts(n) for n in layer_names]
 
         if cache:
             self.cache[cache_key] = layer_names
@@ -277,24 +291,37 @@ class LoraAnalysis:
                                 cache=cache)
     
     @property
+    def lora_layer_attributes_weights(self, alternate_tensor_name:Optional[str]=None, 
+                              cache:bool=True):
+        """property to get lora weight attribute names"""
+        return self.get_lora_layer_attribute_names(
+                                alternate_tensor_name=alternate_tensor_name,
+                                cache=cache, weights=True)
+    
+    @property
     def lora_layer_attributes(self, alternate_tensor_name:Optional[str]=None, 
                               cache:bool=True):
         """property to get lora weight attribute names"""
         return self.get_lora_layer_attribute_names(
                                 alternate_tensor_name=alternate_tensor_name,
-                                cache=cache)
+                                cache=cache, weights=False)
     
-    @property
-    def lora_layer_names(self, layer_name_function:Optional[callable]=None,
+    def get_lora_layer_names(self, layer_name_function:Optional[callable]=None,
                          alternate_tensor_name:Optional[str]=None, 
-                         cache:bool=True):
+                         cache:bool=True, weights=True):
         """property to get the names of the LoRA layers according to the
         model weight name function (architecture specific)"""
 
         cache_key = "lora_layer_names"
+        cache_key += "_weights" if weights else ""
+
         if cache and cache_key in self.cache.keys():
             return self.cache[cache_key]
-        elif self.layer_name_dict is not None:
+        
+        elif weights and (self.layer_name_dict_weights is not None):
+            return list(self.layer_name_dict_weights.keys())
+        
+        elif (self.layer_name_dict is not None) and not weights:
             return list(self.layer_name_dict.keys())
 
         # get the weight name function
@@ -302,37 +329,65 @@ class LoraAnalysis:
 
         atr_names = self.get_lora_layer_attribute_names(
                                 alternate_tensor_name=alternate_tensor_name, 
-                                cache=cache)
+                                cache=cache, weights=weights)
         layer_name_dict = dict(zip(
             [elnf(a) for a in atr_names],
             atr_names,
         ))
 
         names = list(layer_name_dict.keys())
-        self.layer_name_dict = layer_name_dict
+        if weights:
+            self.layer_name_dict_weights = layer_name_dict
+        else:
+            self.layer_name_dict = layer_name_dict
 
         names.sort()
         
         if cache:
-            self.cache["lora_layer_names"] = names
+            self.cache[cache_key] = names
 
         return names
     
+    @property
+    def lora_layer_names_weights(self, layer_name_function:Optional[callable]=None,
+                         alternate_tensor_name:Optional[str]=None, 
+                         cache:bool=True):
+        return self.get_lora_layer_names(
+                                layer_name_function=layer_name_function,
+                                alternate_tensor_name=alternate_tensor_name,
+                                cache=cache, weights=True)
+    
+    @property
+    def lora_layer_names(self, layer_name_function:Optional[callable]=None,
+                         alternate_tensor_name:Optional[str]=None, 
+                         cache:bool=True):
+        return self.get_lora_layer_names(
+                                layer_name_function=layer_name_function,
+                                alternate_tensor_name=alternate_tensor_name,
+                                cache=cache, weights=False)
+
 
     def get_layer_names(self, rules:Optional[Union[list, str, int]],
                         int_pad:int=2,
-                        attributes:bool=False):
+                        attributes:bool=False, weights=True):
         """
         returns the layer name (renamed from layer name function) or attribute
         names of the given functions
         """
-        all_names = filter_by_rules(all_strings=self.lora_layer_names, 
+        all_strings = self.lora_layer_names_weights if weights \
+                        else self.lora_layer_names
+        
+        # sets dict 
+        all_names = filter_by_rules(all_strings=all_strings, 
                                     int_pad=int_pad,
                                     rules=rules)
+        
+        layer_dict = self.layer_name_dict_weights if weights else \
+                        self.layer_name_dict
 
         # check if also returning attribute names
         if attributes:
-            return {x: self.layer_name_dict[x] for x in all_names}
+            return {x: layer_dict[x] for x in all_names}
         else:
             return all_names
                 
@@ -521,7 +576,7 @@ def filter_by_rules(all_strings:list, rules:Optional[Union[list, str, int]],
     filtered = all_strings.copy()
 
     for k in rules:
-        print(k)
+        # print(k)
         if isinstance(k, list):
             sub_rules = [pad_number(j, int_pad) for j in k if is_int_or_int_string(j)]
             sub_rules += [j for j in k if not is_int_or_int_string(j)]
