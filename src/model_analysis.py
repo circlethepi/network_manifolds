@@ -368,7 +368,8 @@ class LoraAnalysis:
                         num_return_sequences:int=1,
                         max_length:int=512,
 
-                        input_name:Optional[str]=None):
+                        input_name:Optional[str]=None,
+                        output_device=None):
         """
         Do inference and collect activations. 
         Inputs should be a tokenized dictionary.
@@ -404,6 +405,7 @@ class LoraAnalysis:
             layer_name_func=self.layer_name_function,
 
             output_dir=out_save_path,
+            output_device=output_device,
         )
 
         return outputs
@@ -627,7 +629,8 @@ def inference_with_activations(input:dict, layers:list[str], model,
                                save_dir:Optional[str]=None,
                                input_name:Optional[str]=None,
                                layer_name_func:Optional[callable]=None,
-                               output_dir:Optional[Union[str, Path]]=None):
+                               output_dir:Optional[Union[str, Path]]=None,
+                               output_device=None):
     """ function to get model activations at the specified layers for the given
     input data/queries
     
@@ -729,6 +732,10 @@ def inference_with_activations(input:dict, layers:list[str], model,
         if return_outputs and not check_if_null(output_dir, False):
             filename = check_if_null(input_name, "OUTPUTS") + ".pkl"
             output_filename = os.path.join(output_dir, filename)
+
+            # move outputs if necessary
+            if check_if_null(output_device, False, True):
+                outputs = move_output_tensors(outputs, output_device)
 
             # WISHLIST save hidden states and attentions to a different place
             # (will require restructuring them somehow, want safetensors also)
@@ -901,9 +908,6 @@ def save_activations_to_disc(activations:dict, save_dir:str,
         save_file(to_save, filepath)
 
     return
-
-
-
 
 
 
