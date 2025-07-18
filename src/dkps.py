@@ -7,6 +7,7 @@ from typing import Optional, Union
 
 from src.utils import check_if_null, display_message
 import src.matrix as matrix
+import src.plot as plot
 
 from sklearn import manifold
 
@@ -134,7 +135,9 @@ class SimilaritySpace:
     Class for dealing with a similarity space
     """
 
-    def __init__(self, similarity_matrix, seed:int=0):
+    def __init__(self, similarity_matrix, seed:int=0,
+                 coordinates=None, name:Optional[str]=None,
+                 sub_names=None):
         """
         
         :param similarity_matrix: array-like  The similarity matrix that 
@@ -142,6 +145,7 @@ class SimilaritySpace:
                                                 Should be (N, N), symmetric,
                                                 and have 1s on the diagonal
         :param seed: int        seed for MDS calculation
+        :param coordinates np.array|None    pre-computed MDS coordinates
 
         """
 
@@ -149,8 +153,11 @@ class SimilaritySpace:
         self.seed = seed 
         self.n = similarity_matrix.shape[-1]
 
-        # set later
-        self.coordinates = None
+        # names and stuff
+        self.name = name
+        self.sub_names = sub_names
+
+        self.coordinates = coordinates
     
 
     def compute_coords(self, align_coords:bool=True,
@@ -175,6 +182,91 @@ class SimilaritySpace:
         
         return coords
     
+
+    def set_name(self, name:str, override=False):
+        """set name"""
+        do = True
+        if check_if_null(self.name, False, True):
+            if not override:
+                message = f"""Warning: current name is set to {self.name}. To 
+                override this warning and change the name to {name}, re-run 
+                this method with `override=True`"""
+
+                do = False
+            else:
+                message = f"""Overriding current name {self.name}"""
+
+                do = True
+            print(display_message(message))
+        
+        if do:
+            self.name = name
+
+        return self   
+
+
+    def set_sub_names(self, sub_names, override=False):
+        """set names for each object represented"""
+        do = True
+
+        if check_if_null(self.sub_names, False, True):
+            if not override:
+                message = f"""Warning: current sub_names are set to 
+                {self.sub_names}. To override this warning and change them to 
+                {sub_names}, re-run this method with `override=True`"""
+
+                do = False
+            else:
+                message = f"""Overriding current sub_names {self.sub_names}"""
+
+                do = True
+            print(display_message(message))
+        
+        if do:
+            # TODO better error handling (allow more than n)
+            message = """Number of names must match the number of objects"""
+            assert len(sub_names) == self.n, display_message(message)
+
+            self.sub_names = sub_names
+        return self      
+    
+
+    def plot_similarity(self, title=None,
+                        axis_label=None, ticks=None, ticklabs=None,
+                        vmin=0, vmax=1, rotation=0,
+                        cbar_label="similarity",
+                        cbar_ticks=None,
+                        figsize=(10, 10), savename=None,
+                        savedir_override=None,
+                        mask_color='#cffcff', nan_color='#ffaffa',
+                        colormap=None,
+                        full_matrix=False):
+        """Plot similarity matrix with custom plotting function 
+        (see plot.py for more details)"""
+
+        title = check_if_null(check_if_null(title, self.name), "similarity")
+        ticks = check_if_null(ticks, range(self.n))
+
+        ticklabs = check_if_null(check_if_null(ticklabs, self.sub_names),
+                                 ["" for k in range(self.n)])
+        
+        plot.plot_similarity_matrix(sims=self.similarity_matrix,
+                                    title=title, axis_label=axis_label,
+                                    ticks=ticks, ticklabs=ticklabs,
+                                    vmin=vmin, vmax=vmax, rotation=rotation,
+                                    cbar_label=cbar_label, 
+                                    cbar_ticks=cbar_ticks,
+                                    figsize=figsize, savename=savename,
+                                    savedir_override=savedir_override,
+                                    mask_color=mask_color, nan_color=nan_color,
+                                    colormap=colormap,
+                                    full_matrix=full_matrix)
+
+
+# WISHLIST add handling for multiple sets of coordinates
+
+       
+        
 
     
 

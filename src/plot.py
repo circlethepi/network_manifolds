@@ -5,6 +5,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm # for settings
 from mpl_toolkits import axes_grid1 # for colorbar
+from matplotlib.ticker import ScalarFormatter # for (linear) tick format
+
 from typing import Union, Optional
 
 import os
@@ -52,7 +54,7 @@ mpl.rcParams.update({
     "font.size": GLOBAL_FONT_SIZE,                      # default is 10
     "font.weight": weight, 
 
-    # Overrides for all specific plot elements
+    # Overrides for all plot elements not included in base setting
     "axes.titlesize": GLOBAL_FONT_SIZE,
     "axes.titleweight": weight,
 
@@ -69,46 +71,119 @@ mpl.rcParams.update({
     "figure.titleweight": weight,
 })
 
+
+## Format Definitions / Helper
+## Linear axis formatting
+lin_formatter = ScalarFormatter(useMathText=True)
+lin_formatter.set_scientific(True)
+lin_formatter.set_powerlimits((-3, 3)) # default 
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                        Main Plotting Utility Functions
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-def start_fig(figsize=DEFAULT_FIG_SIZE, xscale="linear", yscale="linear",):
-    """Creates simple figure and sets axis scales"""
-    plt.figure(figsize=figsize)
-    
+def with_ax(func):
+    """wrapper to allow plotting on specific axes if provided (for subplots or
+    subfigures)"""
+
+    def wrapper(*args, ax=None, figsize=DEFAULT_FIG_SIZE, 
+                **kwargs):
+        standalone = False
+
+        if check_if_null(ax, True, False):
+            fig, ax = plt.subplots(figsize=figsize)
+            standalone = True
+            # print(f"[with_ax] Created figure {fig.number} - {func.__name__}")
+        else:
+            fig = ax.figure
+            # plt.sca(ax)
+            # print(f"[with_ax] Using existing figure {fig.number} - {func.__name__}")
+        
+        result = func(*args, ax=ax, **kwargs)
+
+        return result
+    return wrapper
+
+
+@with_ax
+def scale_ax(ax=None, xscale="linear", yscale="linear", pwr_format=True):
+    """Sets axis scales and optional tick formatting"""
+
     if isinstance(xscale, str):
         xscale = (xscale, {})
-    plt.xscale(xscale[0], **xscale[1])
+    ax.set_xscale(xscale[0], **xscale[1])
+    # set formatter
+    if pwr_format and xscale[0] == "linear":
+        ax.xaxis.set_major_formatter(lin_formatter)
+
     if isinstance(yscale, str):
         yscale = (yscale, {})
-    plt.yscale(yscale[0], **yscale[1])
+    ax.set_yscale(yscale[0], **yscale[1])
+    # set formatter
+    if pwr_format and yscale[0] == "linear":
+        ax.yaxis.set_major_formatter(lin_formatter)
+
+    return ax
 
 
-def plot_labels(title=None, 
-                xticks=None, xticklabs=None, xlab=None,
-                yticks=None, yticklabs=None, ylab=None):
-    """Add axis and sup titles; axis ticks"""
+@with_ax
+def plot_labels(ax=None, title=None, 
+                xticks=None, xticklabs=None, xrot=0, xlab=None, xlims=None,
+                yticks=None, yticklabs=None, yrot=0, ylab=None, ylims=None):
+    """Add axis and sup titles; axis ticks, axis limits"""
 
     # x axis ticks
     xticks, xticklabs = get_ticks_and_labs(xticks, xticklabs)
-    plt.xticks(ticks=xticks, labels=xticklabs)
+    ax.set_xticks(ticks=xticks, labels=xticklabs, rotation=xrot)
 
     # x axis label
     if check_if_null(xlab, False, True):
-        plt.xlabel(xlab)
+        ax.set_xlabel(xlab)
+
+    # x axis limits
+    lim_message = """Axis limits must be exactly two values: (min, max)"""
+    if check_if_null(xlims, False, True):
+        assert len(xlims) == 2, display_message(lim_message)
+        ax.set_xlim(xlims[0], xlims[1])
 
     # y axis ticks
     yticks, yticklabs = get_ticks_and_labs(yticks, yticklabs)
-    plt.yticks(ticks=yticks, labels=yticklabs)
+    ax.set_yticks(ticks=yticks, labels=yticklabs, rotation=yrot)
 
     # y axis label
     if check_if_null(ylab, False, True):
-        plt.ylabel(ylab)
+        ax.set_ylabel(ylab)
+
+    # y axis limits
+    if check_if_null(ylims, False, True):
+        assert len(ylims) == 2, display_message(lim_message)
+        ax.set_ylim(ylims[0], ylims[1])
 
     # title
     if check_if_null(title, False, True):
-        plt.title(title)
+        ax.set_title(title)
+    
+    return ax
+    
+@with_ax
+def format_ticks(ax=None, dx_x=75, dy_x=0, dx_y=-100, dy_y=15, color="#777777"):
+    """Formats the ticks and axes for scientific notation
+    (overrides default custom tick formatting)"""
+
+     # REDRAW LABELS (for scientific notation vibes)
+    if ax.get_yscale() == "linear":
+        ax.yaxis.set_major_formatter(lin_formatter)
+    if ax.get_xscale() == "linear":
+        ax.xaxis.set_major_formatter(lin_formatter)
+
+    move_sci_offset_text(axis='x', dx=dx_x, dy=dy_x, color=color)
+    move_sci_offset_text(axis='y', dx=dx_y, dy=dy_y, color=color)
+
+    # redraw the labels
+    ax.figure.canvas.draw()
+
+    return ax
 
     
 def plot_legend():
@@ -120,13 +195,16 @@ def plot_legend():
 DEFAULT_CBAR_AX_W = 0.5 #(inches)
 DEFAULT_CBAR_PAD = 0.3 #(inches)
 def plot_colorbar(mappable=None,
-                  target_ax=None, cvals=None, colormap=None, colornorm=None,
+                  target_ax=None, 
+                  cvals=None, colormap=None, colornorm=None, figsize=None,
                   cbar_thickness:Optional[float]=None, 
                   pad_in:Optional[float]=None,
                   horizontal:bool=False, location_override:Optional[str]=None,
 
                   cbar_label:Optional[str]=None, labelpad:int=20,
                   cbar_ticks=None, cbar_ticklabs=None,
+
+                  **kwargs
                   ):
     """Adds a colorbar to the plot
 
@@ -155,8 +233,12 @@ def plot_colorbar(mappable=None,
                                         vertical bars on the right
 
     :param cbar_label: str|None     title for the colorbar. Default None
+
+    :param **kwargs:    additional arguments for end_fig() if standalone cbar
     
     """
+    standalone = False
+
     # get orientation
     cbar_orient = "horizontal" if horizontal else "vertical"
 
@@ -200,15 +282,21 @@ def plot_colorbar(mappable=None,
                 (False, "horizontal"): (8,1.5),
                 (False, "vertical"): (1.5,8)
             }
-            figsize = default_standlone_figsizes[True, "horizontal" if \
-                                                 horizontal else "vertical"]
+            standalone = True
+            figsize = check_if_null(figsize, 
+                                    default_standlone_figsizes[False, \
+                                    "horizontal" if horizontal else "vertical"]
+                                    )
             # make the figure and colorbar axes
             fig, cax = plt.subplots(figsize=figsize, layout="constrained")
+        else:
+            fig, cax = target_ax.figure, target_ax
+           
     
     else:
         canvas = axes_grid1.make_axes_locatable(mappable.axes)
         fig = mappable.axes.figure
-        current = plt.gca()
+        current = fig.gca()
 
         # get size and padding
         size_convert = check_if_null(cbar_thickness, DEFAULT_CBAR_AX_W)
@@ -216,7 +304,6 @@ def plot_colorbar(mappable=None,
         pad_convert = check_if_null(pad_in, DEFAULT_CBAR_PAD)
         pad = axes_grid1.axes_size.Fixed(pad_convert) 
 
-        
         cbar_loc = check_if_null(location_override,     # get location
                                 "bottom" if horizontal else "right")
         cax = canvas.append_axes(cbar_loc, size=size, pad=pad)
@@ -243,34 +330,85 @@ def plot_colorbar(mappable=None,
             cbar.ax.get_yaxis().labelpad = labelpad
             cbar.ax.set_ylabel(cbar_label, rotation=-90)
     
-    return cbar
+    if standalone:
+        end_fig(fig, show=True, tight=False, **kwargs)
+    
+    return fig
 
 
-def end_fig(show=True, savename=None, dir=None):
+def end_fig(fig_or_ax=None, show=True, savename=None, dir=None, 
+            filetype=GLOBAL_PLOT_FILETYPE, tight=True):
     """Shows and saves fig as indicated"""
 
-    plt.tight_layout(pad=0.1)
+    if check_if_null(fig_or_ax, True, False):
+        fig = plt.gcf() # select current if not provided
+    elif hasattr(fig_or_ax, "figure"): # ax
+        fig = fig_or_ax.figure
+    else: # is fig
+        fig = fig_or_ax 
+
+    # print(f"[end_fig] Tightening layout and closing figure {fig.number}")
+
+    if tight:
+        fig.tight_layout(pad=0.1)
 
     if check_if_null(savename, False):
         assert isinstance(savename, str), "Invalid filename"
-        if not savename.endswith(GLOBAL_PLOT_FILETYPE):
-            savename += GLOBAL_PLOT_FILETYPE
+        if not savename.endswith(filetype):
+            savename += filetype
 
         dir = check_if_null(dir, GLOBAL_PLOT_DIR)
         
         savepath = os.path.join(dir, savename)
 
-        plt.savefig(savepath, 
-                    bbox_inches="tight", pad_inches=0,
+        fig.savefig(savepath, 
+                    bbox_inches="tight", pad_inches=0.15,
                     dpi=GLOBAL_DPI, transparent=True)
 
     if show:
         plt.show()
+    
+    plt.close(fig)
+    
+
         
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                               Format Helpers
+#                               Format Helpers 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
+def space_ticks(limits, n_ticks, keep0=False):
+    """Generate tick values of the form
+                K*10^{P} 
+    for a fixed P (linear scale) from a given set of axis limits
+
+    n_ticks is approximate - actual number of ticks may vary
+    """
+
+    lim_lo, lim_hi = limits[0], limits[1]
+
+    pwr = min(np.floor(np.log10(abs(lim_lo))), np.floor(np.log10(abs(lim_hi))))
+
+    K_lo = np.sign(lim_lo) * ( abs(lim_lo) / (10**pwr) ) # mantissa for lo val
+    K_hi = np.sign(lim_hi) * ( abs(lim_hi) / (10**pwr) ) # mantissa for hi val
+
+    start_int, end_int = int(np.ceil(K_lo)), int(np.floor(K_hi))
+    total_ticks = end_int + np.sign(start_int)*start_int
+    space = int(np.floor(total_ticks / n_ticks))
+
+    if total_ticks < n_ticks:
+        space = 1
+
+    Ks = list(range(start_int, end_int+space, space))
+
+    # option to always include 0
+    if (np.sign(start_int) == -1* np.sign(end_int)) and keep0:
+        Ks.append(0)
+
+    ticks = [K * 10**pwr for K in Ks]
+
+    return(ticks)
+
 
 def format_ticklabs(x):
     """Formats tick (labels) for axes"""
@@ -320,9 +458,152 @@ def format_data(x):
         return tuple(format_data(t) for t in x)
     else:
         return x
+    
+
+def move_sci_offset_text(axis='x', dx=0, dy=0, color="#999999", ax=None):
+
+    ax = check_if_null(ax, plt.gca())
+
+    message= """axis must be 'x' or 'y'"""
+    assert axis in ('x', 'y'), display_message(message)
+
+    offset = {'x': ax.xaxis, 'y': ax.yaxis}[axis].get_offset_text()
+
+    ax.figure.canvas.draw() # Force a draw so the text exists
+    # Get current position in display coords (pixels)
+    x_disp, y_disp = offset.get_transform().transform(offset.get_position())
+
+    # Shift by dx, dy in pixels
+    x_disp += dx
+    y_disp += dy
+
+    # Convert back to axis coordinates and set new position
+    new_x, new_y = ax.transAxes.inverted().transform((x_disp, y_disp))
+    offset.set_position((new_x, new_y))
+    offset.set_color(color)
+
+
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                              Specific Plot Types
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
+@with_ax
+def plot_similarity_matrix(sims, ax=None, title=None,
+                           figsize=(10, 10),
+                           axis_label=None, ticks=None, ticklabs=None,
+                           full_matrix=False, xrot=0, yrot=0,
 
+                           colormap=None, vmin=0, vmax=1,
+                           mask_color='#cffcff', nan_color='#ffaffa',
+
+                           do_colorbar=True, cbar_label="similarity",
+                           cbar_ticks=None,
+                           savename=None, savedir_override=None, show_plot=True,
+                           standalone=False
+                           # TODO add splits
+                           ):
+    """Plot similarity matrix heatmap with colorbar
+    nan_color option is for if there are nan values in the matrix
+    """
+    # WISHLIST better arguments for this
+    
+    ax = scale_ax(figsize=figsize, ax=ax, xscale="linear", yscale="linear", 
+             pwr_format=False)
+
+    # Full matrix handling (show only bottom half)
+    mask = np.zeros_like(sims, dtype=bool) if full_matrix \
+           else np.triu(np.ones_like(sims, dtype=bool), k=0)
+    
+    colormap = check_if_null(colormap, mpl.cm.binary)
+    colormap.set_bad(mask_color)
+
+    outmap = ax.imshow(np.ma.array(sims, mask=mask), cmap=colormap,
+                        vmin=vmin, vmax=vmax, interpolation="nearest")
+    # (input for the colorbar later)
+    
+    # NaN value handling
+    nan_sims = np.isnan(sims)
+    nan_sims = np.ma.masked_where(nan_sims==False, nan_sims)
+    nan_sims = np.ma.array(nan_sims, mask=mask)
+    colormap_nan = mpl.colors.ListedColormap([nan_color, nan_color])
+    
+    ax.imshow(nan_sims, aspect="auto", cmap=colormap_nan, vmin=0, vmax=1,
+               origin="lower")
+
+    # labels
+    ax = plot_labels(ax=ax, title=title, xticks=ticks, xticklabs=ticklabs,
+                yticks=ticks, yticklabs=ticklabs,
+                xlab=axis_label, ylab=axis_label,
+                xrot=xrot, yrot=yrot)
+
+    # colorbar
+    if do_colorbar:
+        cbar_ticks = check_if_null(cbar_ticks, np.linspace(vmin, vmax, 5))
+        plot_colorbar(outmap, cbar_ticks=cbar_ticks, cbar_label=cbar_label, 
+                        labelpad=40)
+    
+    # separation lines
+    # TODO implement separation lines in plot for different runs etc
+
+    # force same scales (keeps all cells square)
+    ax.set_aspect("equal")
+    
+    if standalone:
+        end_fig(fig_or_ax=ax, show=show_plot, savename=savename, 
+                dir=savedir_override)
+
+    return outmap
+
+
+# Package the mds plotting function more nicely
+@with_ax
+def plot_MDS(coords, ax=None,
+             figsize=DEFAULT_FIG_SIZE,
+             color_vals=None, cmap=None, marker="o", msize=400,
+
+             equal=False, 
+             title:Optional[str]=None, 
+             xticks:Optional[any]=None, yticks:Optional[any]=None,
+             xlab:Optional[str]="MDS d1", ylab:Optional[str]="MDS d2",
+             xlims=None, ylims=None, xrot=0, yrot=0,
+             format=True,
+
+             do_colorbar=True,
+             cbar_ticks=None, cbar_h=False, cbar_labpad=30, cbar_label=None,
+             savename=None, savedir_override=None, show_plot=True,
+
+             standalone=True,
+             ):
+    # TODO add option for trajectory lines
+    
+    cmap = check_if_null(cmap, plt.cm.plasma)
+    
+    ax = scale_ax(ax=ax, xscale="linear", yscale="linear", pwr_format=True)
+    scat = ax.scatter(coords[:, 0], coords[:, 1], c=color_vals, cmap=cmap, 
+                       s=msize, marker=marker)
+
+    if equal:
+        ax.set_aspect("equal")
+
+    ax = plot_labels(ax=ax, title=title,
+                xticks=xticks, yticks=yticks,
+                xlab=xlab, ylab=ylab,
+                xlims=xlims, ylims=ylims,
+                xrot=xrot, yrot=yrot)
+
+    if do_colorbar:
+        plot_colorbar(mappable=scat, target_ax=ax,
+                      cbar_ticks=cbar_ticks, 
+                      horizontal=cbar_h, labelpad=cbar_labpad,
+                      cbar_label=cbar_label)
+    
+    if format:
+        ax = format_ticks(ax=ax)
+
+    if standalone:
+        end_fig(fig_or_ax=ax, show=show_plot, savename=savename, 
+                dir=savedir_override)
+
+    return scat

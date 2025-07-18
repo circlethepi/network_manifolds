@@ -27,8 +27,6 @@ import src.dkps as dkps
 ###############################################################################  
 description = """Getting similarity matrices and MDS coordinates from pre-computed activations"""
 
-
-
 recipes = [ # 
     [1.0, 0.0],  # all from topic 8
     [0.8, 0.2],  # 80% from topic 8, 20% from topic 9
