@@ -1,3 +1,12 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#               Accessing HuggingFace models and performing analysis   
+#                          Merrick Ohata 2025, JHU AMS         
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+"""
+  description of the file here
+"""
+
+
 import torch
 import numpy as np
 import random
@@ -15,13 +24,6 @@ from src.utils import check_if_null, get_device, is_int_or_int_string
 import textwrap
 import pickle
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#               Accessing HuggingFace models and performing analysis   
-#                          Merrick Ohata 2025, JHU AMS         
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-# 
-#   description of the file here
-#
 
 GLOBAL_ANALYSIS_DIR = "/weka/home/mohata1/scratchcpriebe1/MO/network_manifolds/results/cache"
 

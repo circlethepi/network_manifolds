@@ -1,12 +1,13 @@
+"""
+General utility functions for everything and some global variables
+"""
+
 import torch
 import numpy as np
 import random
 import os
 import textwrap
 
-"""
-General utility functions for everything and some global variables
-"""
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                               Global Variables           

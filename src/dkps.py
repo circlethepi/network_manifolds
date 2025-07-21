@@ -1,3 +1,12 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                    Working in the Data Kernel Perspective Space 
+#                          Merrick Ohata 2025, JHU AMS         
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+"""
+  Code related to inducing the DKPS and creating visualizations of models
+  within that space
+"""
+
 import torch
 import numpy as np
 import random
@@ -10,15 +19,6 @@ import src.matrix as matrix
 import src.plot as plot
 
 from sklearn import manifold
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                    Working in the Data Kernel Perspective Space 
-#                          Merrick Ohata 2025, JHU AMS         
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-# 
-#   Code related to inducing the DKPS and creating visualizations of models
-#   within that space
-
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                           Similarity to Coordinates           

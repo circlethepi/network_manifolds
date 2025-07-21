@@ -585,29 +585,76 @@ def convert_cross_cov_to_alignment(cross_cov_dict):
     return align_dict
 
 
-def compute_pairwise_alignments(*matrices, decomposition="svd", keys=None):
-    """ 
-    Computes the orthogonal alignment dictionary between a list of matrices. 
+# def compute_pairwise_alignments(*matrices, decomposition="svd", keys=None):
+#     """ 
+#     Computes the orthogonal alignment dictionary between a list of matrices. 
     
-    Matrices can also be a dictionary object with [key] -> matrix. The output
-    dictionary will then be of the form 
-            [key1, key2] -> alignment 
-    Such that  ( alignment @ matrices[key2] ) is aligned to matrices[key1]
+#     Matrices can also be a dictionary object with [key] -> matrix. The output
+#     dictionary will then be of the form 
+#             [key1, key2] -> alignment 
+#     Such that  ( alignment @ matrices[key2] ) is aligned to matrices[key1]
 
 
     
-    :param matrices: Union[Matrix, torch.Tensor, np.array, dict]  the matrices to
-                    compute the alignment dictionary for. Each should be of 
-                    shape (B, M_i, N), if B > 1 then the alignment dictionary 
-                    is computed for each batch
-    :return align_dict: dict    the alignment dictionary of the form
+#     :param matrices: Union[Matrix, torch.Tensor, np.array, dict]  the matrices to
+#                     compute the alignment dictionary for. Each should be of 
+#                     shape (B, M_i, N), if B > 1 then the alignment dictionary 
+#                     is computed for each batch
+#     :return align_dict: dict    the alignment dictionary of the form
                     
-                    dict (i, j) -> orthogonal alignment matrix X that minimizes 
-                    ||X M_i - M_j ||_F such that X^T X=I
+#                     dict (i, j) -> orthogonal alignment matrix X that minimizes 
+#                     ||X M_i - M_j ||_F such that X^T X=I
+#     """
+
+#     # make the matrix into a dict of [key -> Matrix] pairs
+#     if not isinstance(matrices, dict):
+#         # if keys is not provided, then use the indices as keys
+#         if check_if_null(keys, True, False):
+#             keys = list(range(len(matrices)))
+#         else:
+#             # check that keys and matrices have the same length
+#             message = """keys and matrices must have the same length if keys is
+#             provided"""
+#             assert len(keys) == len(matrices), display_message(message)
+        
+#         # check and/or convert to Matrix objects
+#         matrices = [check_matrix(m, decomposition=decomposition) for \
+#                     m in matrices]
+
+#         matrix_dict = dict(zip(keys, matrices))
+#     else:
+#         # verify matrices are Matrix objects
+#         new_values = [check_matrix(m, decomposition=decomposition) \
+#                       for m in matrices.values()]
+#         matrices = dict(zip(matrices.keys(), new_values))
+#         matrix_dict = matrices
+
+#     # get the cross covariances
+#     cross_dict = compute_pairwise_covariances(matrix_dict)
+
+#     # compute the alignments now
+#     align_dict = convert_cross_cov_to_alignment(cross_dict)
+
+#     return align_dict
+
+
+def compute_pairwise_alignments(*matrices, decomposition="svd", keys=None,
+                                symmetry=False, convert_from_cross=None):
+    """Alternative, possibly faster way to compute the alignment dict
+    Can also convert from cross covariance dict if provided in 
+    convert_from_cross argument
     """
 
+    # if convert_from_cross is not None, then convert from given cross dict
+    if check_if_null(convert_from_cross, False, True):
+        # check that convert_from_cross is a dict
+        if not isinstance(convert_from_cross, dict):
+            message = """`convert_from_cross` must be a dictionary of cross
+            covariance matrices  [key1, key2] -> cross covariance Matrix"""
+            raise ValueError(display_message(message))
+        return convert_cross_cov_to_alignment(convert_from_cross)
     # make the matrix into a dict of [key -> Matrix] pairs
-    if not isinstance(matrices, dict):
+    elif not isinstance(matrices, dict):
         # if keys is not provided, then use the indices as keys
         if check_if_null(keys, True, False):
             keys = list(range(len(matrices)))
@@ -629,11 +676,26 @@ def compute_pairwise_alignments(*matrices, decomposition="svd", keys=None):
         matrices = dict(zip(matrices.keys(), new_values))
         matrix_dict = matrices
 
-    # get the cross covariances
-    cross_dict = compute_pairwise_covariances(matrix_dict)
+    
+    # compute the pairwise alignments
+    align_dict = {}
+    for key1, mat1 in matrix_dict.items():
+        for key2, mat2 in tqdm(matrix_dict.items(),
+                               desc=f"Computing alignments for matrix {key1}"):
 
-    # compute the alignments now
-    align_dict = convert_cross_cov_to_alignment(cross_dict)
+            if key1 == key2: # don't compute self-covariance
+                continue
+
+            # for symmetry
+            if ( (key2, key1) in align_dict ): 
+                if symmetry: 
+                    align_dict[(key1, key2)] = align_dict[(key2, key1)].T
+                continue
+
+            # if keys are distinct and not calculated already,
+            # compute the cross covariance and add to dict
+            align_dict[(key1, key2)] = compute_alignment(mat1.matrix,
+                                                                 mat2.matrix)
 
     return align_dict
 

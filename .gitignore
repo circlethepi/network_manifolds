@@ -10,5 +10,7 @@ results
 wandb
 jobs
 
+example_subparse.py
+
 *.log
 .DS_store

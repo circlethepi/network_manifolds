@@ -10,6 +10,7 @@ import torch
 import os
 import pickle
 from tqdm import tqdm
+import argparse
 
 # huggingface
 import datasets
@@ -27,6 +28,25 @@ import src.dkps as dkps
 ###############################################################################  
 description = """Getting similarity matrices and MDS coordinates from pre-computed activations"""
 
+def build_parser():
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--layer", type=int, default=0,
+                        help="layer to look at (default: 0)")
+    
+    return parser
+
+def get_args(*args_to_parse):
+    """Get the arguments from the command line"""
+    parser = build_parser(*args_to_parse)
+    args = parser.parse_args()
+    return args
+
+def main():
+    args = get_args()
+    do_code(args)
+
+
 recipes = [ # 
     [1.0, 0.0],  # all from topic 8
     [0.8, 0.2],  # 80% from topic 8, 20% from topic 9
@@ -41,18 +61,23 @@ act_count = 0
 n_replicates = 10
 n_queries = 40
 
+
 print("PWD:  ", os.getcwd())
 
         ############################################
         #           Actually Doing Things          #
 ###############################################################################  
 
-for layer in tqdm(range(0, 16), desc=description):
+def do_code(args):
+# for layer in tqdm(range(0, 16), desc=description):
+    layer = args.layer
 
-    layer = f'{int(layer):0{2}d}'   # pad the layer
+
+    layer_str = f'{int(layer):0{2}d}'   # pad the layer
+    print(f"Layer: {layer_str}\n\n")
 
     ## Pre-Processing for looking at saved matrices
-    layer_name = f'{layer}_{proj_type}-proj_B'
+    layer_name = f'{layer_str}_{proj_type}-proj_B'
 
     # collect the filepaths
     filepaths = []
@@ -101,9 +126,9 @@ for layer in tqdm(range(0, 16), desc=description):
         print(f"Calculating {similarity} similarity")
 
         # Make the save file name
-        count = f"{int(layer):0{2}d}_{similarity}"
+        count = f"{int(layer_str):0{2}d}_{similarity}"
         name = f"mds_coords{count}"
-        coord_savefile = os.path.join(GLOBAL_PROJECT_DIR, "scripts/sync/coordinates", name)
+        coord_savefile = os.path.join(GLOBAL_PROJECT_DIR, "scripts/sync/coordinates/stab_multiseed", name)
 
         # Calculate the similarity
         print(f"Calculating {similarity} similarity")

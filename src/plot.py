@@ -1,4 +1,11 @@
-"""General plotting functions and settings"""
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                     General Plotting Functions and Settings   
+#                          Merrick Ohata 2025, JHU AMS         
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+"""
+General plotting functions and settings
+"""
+
 import torch
 import numpy as np
 import matplotlib as mpl
@@ -12,14 +19,6 @@ from typing import Union, Optional
 import os
 
 from src.utils import check_if_null, display_message
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                     General Plotting Functions and Settings   
-#                          Merrick Ohata 2025, JHU AMS         
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-# 
-#  
-#
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                               Global Variables
