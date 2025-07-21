@@ -1,6 +1,10 @@
 """
 Script to get activations from a model for specific recipes of inputs
 
+
+Run 2025-07-18 
+- seeds 1-10
+- Responses saved on DSAI machine
 """
 
 ############################################                   
