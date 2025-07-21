@@ -36,7 +36,10 @@ recipes = [ #
 ]
 proj_type = "o"  # the type of proj/activations we look at
 
-similarity = "bw"
+# -- Parameters from running the inference
+act_count = 0
+n_replicates = 10
+n_queries = 40
 
 print("PWD:  ", os.getcwd())
 
@@ -44,7 +47,7 @@ print("PWD:  ", os.getcwd())
         #           Actually Doing Things          #
 ###############################################################################  
 
-for layer in tqdm(range(1, 16), desc=description):
+for layer in tqdm(range(0, 16), desc=description):
 
     layer = f'{int(layer):0{2}d}'   # pad the layer
 
@@ -64,10 +67,6 @@ for layer in tqdm(range(1, 16), desc=description):
     print(save_path)
 
     # - iterate over the recipes to make the tensor names
-    # -- Parameters from running the inference
-    act_count = 5
-    n_replicates = 10
-    n_queries = 10
     dataset_name = "yahoo"
     data_name = f"r{n_replicates}_q{n_queries}_{dataset_name}"
 
