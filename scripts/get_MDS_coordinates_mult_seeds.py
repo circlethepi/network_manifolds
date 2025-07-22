@@ -149,4 +149,5 @@ def do_code(args):
         print(f"Saving coordinates to {coord_savefile}")
         save_file(to_save, coord_savefile)
 
+main()
 print("SUCCESS!")
