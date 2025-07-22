@@ -13,4 +13,5 @@ jobs
 example_subparse.py
 
 *.log
+*.out
 .DS_store

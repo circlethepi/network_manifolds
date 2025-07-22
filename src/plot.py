@@ -22,7 +22,7 @@ from src.utils import check_if_null, display_message
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                               Global Variables
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 GLOBAL_FONT_SIZE = 24           # my default: 16
 GLOBAL_PLOT_DIR = 'plots/'
 DEFAULT_FIG_SIZE = (10, 8)      # default figure dimensions (w, h) inches
@@ -32,7 +32,7 @@ GLOBAL_DPI = 600
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                          matplotlib restyling settings
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 mpl.rcdefaults()
 
 # add the font I like :-)
@@ -80,7 +80,7 @@ lin_formatter.set_powerlimits((-3, 3)) # default
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                        Main Plotting Utility Functions
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 def with_ax(func):
     """wrapper to allow plotting on specific axes if provided (for subplots or
@@ -374,7 +374,7 @@ def end_fig(fig_or_ax=None, show=True, savename=None, dir=None,
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                               Format Helpers 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 def space_ticks(limits, n_ticks, keep0=False):
     """Generate tick values of the form
@@ -486,38 +486,48 @@ def move_sci_offset_text(axis='x', dx=0, dy=0, color="#999999", ax=None):
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                              Specific Plot Types
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 @with_ax
-def plot_similarity_matrix(sims, ax=None, title=None,
-                           figsize=(10, 10),
+def plot_similarity_matrix(sims, full_matrix:bool=False, 
+                           lower_triangular:bool=False,
+                           
+                           ax=None, title=None, figsize=(10, 10),
+
                            axis_label=None, ticks=None, ticklabs=None,
-                           full_matrix=False, xrot=0, yrot=0,
+                           xrot=0, yrot=0,
 
                            colormap=None, vmin=0, vmax=1,
                            mask_color='#cffcff', nan_color='#ffaffa',
 
                            do_colorbar=True, cbar_label="similarity",
                            cbar_ticks=None,
-                           savename=None, savedir_override=None, show_plot=True,
-                           standalone=False
-                           # TODO add splits
+
+                           savename=None, savedir_override=None, 
+                           show_plot=True, standalone=False,
+
+                           splits:Optional[Union[list, tuple]]=None,
+                           origin_upper:bool=True, origin_right:bool=True
                            ):
     """Plot similarity matrix heatmap with colorbar
     nan_color option is for if there are nan values in the matrix
     """
+    # TODO better documentation
     # WISHLIST better arguments for this
     
     ax = scale_ax(figsize=figsize, ax=ax, xscale="linear", yscale="linear", 
              pwr_format=False)
 
+    tri = np.tril if lower_triangular else np.triu  # choose triangular mask
+
     # Full matrix handling (show only bottom half)
     mask = np.zeros_like(sims, dtype=bool) if full_matrix \
-           else np.triu(np.ones_like(sims, dtype=bool), k=0)
+           else tri(np.ones_like(sims, dtype=bool), k=0)
     
     colormap = check_if_null(colormap, mpl.cm.binary)
     colormap.set_bad(mask_color)
 
+    # plotting the matrix
     outmap = ax.imshow(np.ma.array(sims, mask=mask), cmap=colormap,
                         vmin=vmin, vmax=vmax, interpolation="nearest")
     # (input for the colorbar later)
@@ -528,8 +538,14 @@ def plot_similarity_matrix(sims, ax=None, title=None,
     nan_sims = np.ma.array(nan_sims, mask=mask)
     colormap_nan = mpl.colors.ListedColormap([nan_color, nan_color])
     
+    # add the NaN values
     ax.imshow(nan_sims, aspect="auto", cmap=colormap_nan, vmin=0, vmax=1,
-               origin="lower")
+               origin="upper" if origin_upper else "lower",)
+    if origin_right:
+        ax.invert_xaxis()
+        # ax.yaxis.set_label_position("right")
+        ax.yaxis.tick_right()
+    
 
     # labels
     ax = plot_labels(ax=ax, title=title, xticks=ticks, xticklabs=ticklabs,
@@ -545,6 +561,7 @@ def plot_similarity_matrix(sims, ax=None, title=None,
     
     # separation lines
     # TODO implement separation lines in plot for different runs etc
+
 
     # force same scales (keeps all cells square)
     ax.set_aspect("equal")
@@ -575,6 +592,7 @@ def plot_MDS(coords, ax=None,
 
              standalone=True,
              ):
+    """Plot MDS coordinates with optional color values and colorbar"""
     # TODO add option for trajectory lines
     
     cmap = check_if_null(cmap, plt.cm.plasma)
