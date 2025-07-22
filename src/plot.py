@@ -30,6 +30,9 @@ DEFAULT_FIG_SIZE = (10, 8)      # default figure dimensions (w, h) inches
 GLOBAL_PLOT_FILETYPE = ".png"
 GLOBAL_DPI = 600
 
+DEFAULT_LABEL_PAD_X = 15
+DEFAULT_LABEL_PAD_Y = 30
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                          matplotlib restyling settings
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
@@ -79,7 +82,7 @@ lin_formatter.set_powerlimits((-3, 3)) # default
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                        Main Plotting Utility Functions
+#                       Component/Plot Format Utility Functions
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 def with_ax(func):
@@ -129,16 +132,29 @@ def scale_ax(ax=None, xscale="linear", yscale="linear", pwr_format=True):
 @with_ax
 def plot_labels(ax=None, title=None, 
                 xticks=None, xticklabs=None, xrot=0, xlab=None, xlims=None,
-                yticks=None, yticklabs=None, yrot=0, ylab=None, ylims=None):
+                yticks=None, yticklabs=None, yrot=0, ylab=None, ylims=None,
+                ylabpad=DEFAULT_LABEL_PAD_Y, xlabelpad=DEFAULT_LABEL_PAD_X,
+                tick_positions=["bottom", "left"]):
     """Add axis and sup titles; axis ticks, axis limits"""
 
+    # tick positions
+    top = "top" in tick_positions
+    right = "right" in tick_positions
+    bottom = "bottom" in tick_positions
+    left = "left" in tick_positions
+    change_tick_position(ax=ax, top=top, right=right,
+                         bottom=bottom, left=left)
+    change_ax_lab_position(ax=ax, top=top, right=right,
+                           bottom=bottom, left=left)
+    
+    # --------------------
     # x axis ticks
     xticks, xticklabs = get_ticks_and_labs(xticks, xticklabs)
     ax.set_xticks(ticks=xticks, labels=xticklabs, rotation=xrot)
 
     # x axis label
     if check_if_null(xlab, False, True):
-        ax.set_xlabel(xlab)
+        ax.set_xlabel(xlab, labelpad=xlabelpad)
 
     # x axis limits
     lim_message = """Axis limits must be exactly two values: (min, max)"""
@@ -146,24 +162,49 @@ def plot_labels(ax=None, title=None,
         assert len(xlims) == 2, display_message(lim_message)
         ax.set_xlim(xlims[0], xlims[1])
 
+    # --------------------
     # y axis ticks
     yticks, yticklabs = get_ticks_and_labs(yticks, yticklabs)
     ax.set_yticks(ticks=yticks, labels=yticklabs, rotation=yrot)
 
     # y axis label
     if check_if_null(ylab, False, True):
-        ax.set_ylabel(ylab)
+        ax.set_ylabel(ylab, rotation=0 if left else -90, labelpad=ylabpad)
 
     # y axis limits
     if check_if_null(ylims, False, True):
         assert len(ylims) == 2, display_message(lim_message)
         ax.set_ylim(ylims[0], ylims[1])
 
+    # --------------------
     # title
     if check_if_null(title, False, True):
         ax.set_title(title)
     
     return ax
+
+@with_ax
+def change_ax_lab_position(ax=None, top=False, right=False, 
+                          bottom=True, left=True):
+    """Change the position of the axis labels on the axes"""
+    # WISHLIST add support for label on both sides for each axis
+    
+    ax.xaxis.set_label_position("top" if top else "bottom")
+    ax.yaxis.set_label_position("right" if right else "left")
+
+    return ax
+
+
+@with_ax
+def change_tick_position(ax=None, top=False, right=False, 
+                        bottom=True, left=True):
+    """Change the position of the ticks on the axes"""
+    
+    ax.tick_params(left=left, right=right, top=top, bottom=bottom,
+                   labelleft=left, labelright=right, 
+                   labeltop=top, labelbottom=bottom)
+    return ax
+
     
 @with_ax
 def format_ticks(ax=None, dx_x=75, dy_x=0, dx_y=-100, dy_y=15, color="#777777"):
@@ -176,8 +217,8 @@ def format_ticks(ax=None, dx_x=75, dy_x=0, dx_y=-100, dy_y=15, color="#777777"):
     if ax.get_xscale() == "linear":
         ax.xaxis.set_major_formatter(lin_formatter)
 
-    move_sci_offset_text(axis='x', dx=dx_x, dy=dy_x, color=color)
-    move_sci_offset_text(axis='y', dx=dx_y, dy=dy_y, color=color)
+    shift_scinot_fmt_text(axis='x', dx=dx_x, dy=dy_x, color=color)
+    shift_scinot_fmt_text(axis='y', dx=dx_y, dy=dy_y, color=color)
 
     # redraw the labels
     ax.figure.canvas.draw()
@@ -227,7 +268,7 @@ def plot_colorbar(mappable=None,
                         DEFAULT_CBAR_PAD (0.3in)
     :param horizontal:bool  whether the bar should be horizontal
     :param location_override: str|None  override location to place the colorbar
-                                        wrt plot axes. Default: None means 
+                                        wrt plot axes. Default: None -- means 
                                         horizontal bars go on bottom and 
                                         vertical bars on the right
 
@@ -370,10 +411,9 @@ def end_fig(fig_or_ax=None, show=True, savename=None, dir=None,
     plt.close(fig)
     
 
-        
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                               Format Helpers 
+#                           Data/Text Format Helpers 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 def space_ticks(limits, n_ticks, keep0=False):
@@ -427,6 +467,7 @@ def format_ticklabs(x):
         y = f'{x:.2e}'          # scientific otherwise
     return y
 
+
 def is_int_x_pwr10(x):
     """Check if x is an integer times some power of 10"""
     exp = np.floor(np.log10(abs(x)))
@@ -445,6 +486,7 @@ def get_ticks_and_labs(ticks, ticklabs):
     
     return ticks, ticklabs
 
+
 def format_data(x):
     """Converts tensors/arrays/lists to numpy for plotting"""
     if torch.is_tensor(x):
@@ -459,7 +501,9 @@ def format_data(x):
         return x
     
 
-def move_sci_offset_text(axis='x', dx=0, dy=0, color="#999999", ax=None):
+def shift_scinot_fmt_text(axis='x', dx=0, dy=0, color="#999999", ax=None):
+    """Adjusts position of 10^K in power/scientific notation format. Typically
+    set using format_ticks() or scale_ax()"""
 
     ax = check_if_null(ax, plt.gca())
 
@@ -484,9 +528,69 @@ def move_sci_offset_text(axis='x', dx=0, dy=0, color="#999999", ax=None):
 
 
 
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                       Basic Plotting Utility Functions
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
+
+@with_ax
+def plot_hlines(ax=None, yvals=None, xmin=None, xmax=None,
+                color=None, linestyle='--', linewidth=1.5,
+                label=None, legend_dict=None, **kwargs):
+    """Plot horizontal lines at specified y-values with optional labels
+    **kwargs additional hline arguments (eg. alpha, zorder, etc.)
+    """    
+    xmin = check_if_null(xmin, 0)
+    xmax = check_if_null(xmax, 1)
+
+    yvals = format_data(yvals)
+
+    lines = ax.hlines(yvals, xmin=xmin, xmax=xmax,
+              color=color, linestyles=linestyle, linewidth=linewidth,
+              label=label)
+    
+    # Add to legend if label is provided
+    if check_if_null(label, False, True):
+        legend_dict = check_if_null(legend_dict, {})
+        legend_dict.update({label: lines})
+
+    return ax, legend_dict
+
+@with_ax
+def plot_vlines(ax=None, xvals=None, ymin=None, ymax=None,
+                color=None, linestyle='--', linewidth=1.5,
+                label=None, legend_dict=None, **kwargs):
+    """Plot vertical lines at specified x-values with optional labels
+    
+    **kwargs additional vline arguments (eg. alpha, zorder, etc.)
+    """
+    ymin = check_if_null(ymin, 0)
+    ymax = check_if_null(ymax, 1)
+
+    xvals = format_data(xvals)
+
+    lines = ax.vlines(xvals, ymin=ymin, ymax=ymax,
+              color=color, linestyles=linestyle, linewidth=linewidth,
+              label=label)
+    
+    # Add to legend if label is provided
+    if check_if_null(label, False, True):
+        legend_dict = check_if_null(legend_dict, {})
+        legend_dict.update({label: lines})
+
+    return ax, legend_dict
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                              Specific Plot Types
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
+
+bool_default_tick_positions = { # (UPPER, RIGHT) -> tick position strings
+    (True, True): ["top", "right"],     # origin upper right
+    (True, False): ["top", "left"],     # origin upper left
+    (False, True): ["bottom", "right"], # origin lower right
+    (False, False): ["bottom", "left"]  # origin lower left
+}
 
 @with_ax
 def plot_similarity_matrix(sims, full_matrix:bool=False, 
@@ -495,18 +599,21 @@ def plot_similarity_matrix(sims, full_matrix:bool=False,
                            ax=None, title=None, figsize=(10, 10),
 
                            axis_label=None, ticks=None, ticklabs=None,
-                           xrot=0, yrot=0,
+                           xrot=0, yrot=0, tick_positions=None,
 
                            colormap=None, vmin=0, vmax=1,
                            mask_color='#cffcff', nan_color='#ffaffa',
 
                            do_colorbar=True, cbar_label="similarity",
-                           cbar_ticks=None,
+                           cbar_ticks=None, cbar_location=None, 
+                           cbar_horizontal=True, cbar_pad_in=None,
 
                            savename=None, savedir_override=None, 
                            show_plot=True, standalone=False,
 
-                           splits:Optional[Union[list, tuple]]=None,
+                           splits:Optional[Union[list, tuple]]=None, 
+                           split_colors:Union[list, str]="red",
+
                            origin_upper:bool=True, origin_right:bool=True
                            ):
     """Plot similarity matrix heatmap with colorbar
@@ -514,6 +621,8 @@ def plot_similarity_matrix(sims, full_matrix:bool=False,
     """
     # TODO better documentation
     # WISHLIST better arguments for this
+    tick_positions = check_if_null(tick_positions, 
+                    bool_default_tick_positions[origin_upper, origin_right])
     
     ax = scale_ax(figsize=figsize, ax=ax, xscale="linear", yscale="linear", 
              pwr_format=False)
@@ -541,26 +650,45 @@ def plot_similarity_matrix(sims, full_matrix:bool=False,
     # add the NaN values
     ax.imshow(nan_sims, aspect="auto", cmap=colormap_nan, vmin=0, vmax=1,
                origin="upper" if origin_upper else "lower",)
+    
+    # setting the origin settings + associated colorbar padding settings
     if origin_right:
         ax.invert_xaxis()
-        # ax.yaxis.set_label_position("right")
-        ax.yaxis.tick_right()
-    
+        fallback_cbar_pad = DEFAULT_CBAR_PAD*3.5 if not cbar_horizontal \
+                                                 else DEFAULT_CBAR_PAD
+        cbar_pad_in = check_if_null(cbar_pad_in, fallback_cbar_pad)
 
     # labels
     ax = plot_labels(ax=ax, title=title, xticks=ticks, xticklabs=ticklabs,
                 yticks=ticks, yticklabs=ticklabs,
                 xlab=axis_label, ylab=axis_label,
-                xrot=xrot, yrot=yrot)
+                xrot=xrot, yrot=yrot, tick_positions=tick_positions)
+
 
     # colorbar
     if do_colorbar:
         cbar_ticks = check_if_null(cbar_ticks, np.linspace(vmin, vmax, 5))
         plot_colorbar(outmap, cbar_ticks=cbar_ticks, cbar_label=cbar_label, 
-                        labelpad=40)
+                        labelpad=40, location_override=cbar_location,
+                        horizontal=cbar_horizontal, 
+                        pad_in=check_if_null(cbar_pad_in, DEFAULT_CBAR_PAD))
     
     # separation lines
     # TODO implement separation lines in plot for different runs etc
+    if check_if_null(splits, False, True):
+        # adjust all values to get correct placement
+        split_coord_vals = format_data([k -0.5 for k in splits])
+        minval, maxval = -0.5, sims.shape[0] - 0.5 
+
+        if isinstance(split_colors, list): # one color per split
+            message = """If `split_colors` is a list, it must match the length 
+            of `splits`"""
+            assert len(split_colors) == len(splits), display_message(message)
+        # plot the split lines
+        plot_vlines(ax=ax, xvals=split_coord_vals, ymin=minval, ymax=maxval,
+                    color=split_colors, linestyle="--", linewidth=1.5)
+        plot_hlines(ax=ax, yvals=split_coord_vals, xmin=minval, xmax=maxval,
+                    color=split_colors, linestyle="--", linewidth=1.5)
 
 
     # force same scales (keeps all cells square)
@@ -592,7 +720,7 @@ def plot_MDS(coords, ax=None,
 
              standalone=True,
              ):
-    """Plot MDS coordinates with optional color values and colorbar"""
+    """"""
     # TODO add option for trajectory lines
     
     cmap = check_if_null(cmap, plt.cm.plasma)

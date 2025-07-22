@@ -33,6 +33,8 @@ def build_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--layer", type=int, default=0,
                         help="layer to look at (default: 0)")
+    parser.add_argument("--seed", type=int, default=0, nargs="*",
+                        help="random seed to use for reproducibility (default: 0)")
     
     return parser
 
