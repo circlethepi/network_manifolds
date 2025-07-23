@@ -32,7 +32,7 @@ from safetensors.torch import save_file
         #              Set Parameters              #
 ###############################################################################
 
-count = 0
+count = 1  # ID
 name = f"multi_recipe_activations{count}"
 
 description =   """
@@ -53,11 +53,13 @@ recipes = [ #
 n_replicates = 10
 n_queries = 40
 
-seeds = list(range(1, 11))
+# seeds = list(range(1, 11))
 # print(seeds)
 # 0 already stored!
+seed_start = 0  
+n_runs = 10 # number of runs to do for each recipe
 
-print(f"Running inference with {n_queries} with {n_replicates} each on {len(seeds)} seeds")
+print(f"Running inference with {n_queries} with {n_replicates} each on {n_runs} seeds")
 
 
                 ############################################                   
@@ -83,12 +85,12 @@ yahoo_test = datasets.load_dataset("yahoo_answers_topics", split="train")
 split_test = data.topic_split_yahoo(yahoo_test, topics=[8, 9])[0]
 print(split_test)
 
-for seed in seeds:
-    for rec in tqdm(recipes, desc=f"seed {seed}"):
-        recipe_name = f"t8={rec[0]}_t9={rec[1]}"
-        ## make the query datasets
-
-        # - sample according to recipe
+seed = seed_start  # start with the first seed
+for rec in tqdm(recipes):
+    recipe_name = f"t8={rec[0]}_t9={rec[1]}"
+    ## make the query datasets
+    for k in range(n_runs):
+    # - sample according to recipe
         print(seed)
         sampled_data = data.sample_from_recipe(rec, n_queries, seed,
                                                 *split_test.values())
@@ -111,5 +113,6 @@ for seed in seeds:
                                         return_outputs=True,
                                         output_device=torch.device('cpu'))
 
+        seed += 1
 
 print("\n\nFinished all seeds")
