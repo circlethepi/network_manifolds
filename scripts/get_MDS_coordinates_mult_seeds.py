@@ -41,7 +41,8 @@ def build_parser():
                         help="destination directory to save the results to (default: results)")
     parser.add_argument("--logfile", type=str, default="sim_MDS.log",
                         help="log file to save the results to (default: sim_MDS.log)")
-    
+    parser.add_argument("--alert", action="store_true", 
+                        help="send email alert when completed")
     return parser
 
 def get_args(*args_to_parse):
@@ -69,8 +70,7 @@ proj_type = "o"  # the type of proj/activations we look at
 n_replicates = 10
 n_queries = 40
 
-SEPARATOR = "\n" + "="*80 + "\n"
-TIMESEP = "\n" + "-  -"*20 + "\n"
+SEPARATOR = "\n" + "~"*80 + "\n"
 
 def time_elapsed_str(start_time):
     """returns the time elapsed since start_time in seconds"""
@@ -177,9 +177,27 @@ def do_code(args):
 
         save_file(to_save, coord_savefile)
     
+    total_time = time.time() - start_time
     print_and_write(f"{SEPARATOR}{time_elapsed_str(start_time)}Finished all seeds", logfile)
+    print_and_write(f"\n{time_elapsed_str(start_time)}Total time elapsed: {total_time}")
     close_files(logfile)
-    
+
+    if args.alert:
+        rows = [
+            ("Layer", layer),
+            ("N Matrices", len(activations)),
+            ("Time Elapsed", total_time),
+            ("Saved to", coord_savefile),
+        ]
+        message=f"""This is an automated message. Your code 
+        `get_mds_coordinates_mult_seeds` is complete. Run details:\n\n"""
+        message=display_message(message)
+        for head, cont in rows:
+            message += f"{head:<15} : {cont:<len(coord_savefile)}"
+        
+        subject = "COMPLETE: remote arch job"
+        # send email
+        compose_and_send_email(message, subject=subject)
 
 main()
 print("SUCCESS!")
