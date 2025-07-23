@@ -38,7 +38,7 @@ def build_parser():
     parser.add_argument("--act-count", "--act-id", type=int, default=0, nargs=1,
             help="ID or count of the activation run to look at (default: 0)")
     parser.add_argument("--dir", type=str, default="results",
-                        help="destination directory to save the results to (default: results)")
+                        help="destination directory to save the results to {relative to the project dir} (default: results)")
     parser.add_argument("--logfile", type=str, default="sim_MDS.log",
                         help="log file to save the results to (default: sim_MDS.log)")
     
