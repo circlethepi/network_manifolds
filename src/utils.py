@@ -7,6 +7,7 @@ import numpy as np
 import random
 import os
 import textwrap
+import json
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -42,6 +43,11 @@ def make_logfile(filepath):
     logfile = open(filepath, 'a')
     return logfile
 
+def save_config(filepath, config:dict):
+    """saves the config dictionary to a file"""
+    with open(filepath, 'w') as f:
+        json.dump(config, f, indent=4)
+    return
 
 def print_and_write(message, *files):
     """prints message to console and writes to given files. 
