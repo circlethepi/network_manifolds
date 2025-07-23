@@ -11,17 +11,15 @@ import json
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                               Global Variables           
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                             General Global Variables           
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 GLOBAL_PROJECT_DIR = "/weka/home/mohata1/scratchcpriebe1/MO/network_manifolds/"
 
 
 
-
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                               Utility Functions :)           
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-
+#                             Basic Utility Functions        
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 def set_seed(seed):
     """set the random seed everywhere relevant"""
@@ -37,7 +35,9 @@ def get_device():
                           torch.backends.mps.is_available() else "cpu")
     return device
 
-# logging/writing things
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                                    Logging
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 def make_logfile(filepath):
     """opens a file (that will need to be closed)"""
     logfile = open(filepath, 'a')
@@ -65,6 +65,10 @@ def close_files(*files):
         if file is not None:
             file.close()
     return
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                              Value/Quantity Tracking
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 def nice_interval(n: int):
     """Determines if an integer is nice. Nice integers are of the form
@@ -102,7 +106,9 @@ class AverageMeter(object):
         return fmtstr.format(**self.__dict__)
 
 
-## Type and Value Checking
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                            Errors and Validation        
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 def check_if_null(named_param_or_var, dne_alt, exists_alt=None):
     """ 
     checks if an object exists and returns the given alternate if not
@@ -125,3 +131,68 @@ def is_int_or_int_string(x):
 
 def display_message(msg:str):
     return textwrap.fill(textwrap.dedent(msg))
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                              (Basic) Mail Alerts          
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
+"""(main machine does not have mail set up for alerts as far as I can tell) so
+these are useful if the same is the case for you. Configured only for gmail 
+sending right now."""
+import smtplib
+from email.message import EmailMessage
+
+
+
+def get_mail_login(infofile):
+    """infofile should contain the username on the first line and the (app) 
+    password on the second"""
+    with open(infofile, "r") as file:
+        lines = file.readlines()
+    username, password = lines[0].strip(), lines[1].strip()
+    return username, password
+
+
+def gmail_login(username, password):
+    """logs in to the gmail smtp server"""
+    server = smtplib.SMTP_SSL(host="smtp.gmail.com", port=465)
+    server.login(username, password)
+    return server
+
+# WISHLIST more login options
+
+
+def compose_email(subject, content):
+    """compose an email"""
+    email = EmailMessage()
+    email.set_content(content)
+    email["Subject"] = subject
+    return email
+
+# --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  -
+# Email Config  
+# --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  -
+EMAIL_FILE = "../mail.log"
+EMAIL_USER, EMAIL_PASS = get_mail_login(EMAIL_FILE)
+
+def DEFAULT_SERVER():
+    return gmail_login(EMAIL_USER, EMAIL_PASS)
+
+# --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  -
+
+def send_email(email:EmailMessage, send_to=EMAIL_USER, send_from=EMAIL_USER, 
+               server=DEFAULT_SERVER(), close_connection=True):
+    """send an email"""
+    email["From"] = send_from
+    email["To"] = send_to
+    server.send_message(email)
+    server.quit()
+    print(f"Email {email['Subject']} sent to {send_to}")
+    return
+
+
+def compose_and_send_email(content, subject=None, send_to=EMAIL_USER, 
+                           send_from=EMAIL_USER, server=DEFAULT_SERVER()):
+    email = compose_email(subject, content)
+    send_email(email, send_to=send_to, send_from=send_from, server=server)
+    return
+
