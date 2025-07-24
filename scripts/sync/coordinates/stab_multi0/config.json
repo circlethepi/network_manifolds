@@ -1,0 +1,7 @@
+{
+    "layer": 15,
+    "act_count": 1,
+    "dir": "scripts/sync/stab_multi0",
+    "logfile": "sim_MDS_15.log",
+    "alert": true
+}
