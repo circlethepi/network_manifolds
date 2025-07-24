@@ -35,7 +35,7 @@ def build_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--layer", type=int, default=0,
                         help="layer to look at (default: 0)")
-    parser.add_argument("--act-count", "--act-id", type=int, default=0, nargs=1,
+    parser.add_argument("--act-count", "--act-id", type=int, default=0, 
             help="ID or count of the activation run to look at (default: 0)")
     parser.add_argument("--dir", type=str, default="results",
                         help="destination directory to save the results to {relative to the project dir} (default: results)")
@@ -113,9 +113,11 @@ def do_code(args):
     peft_model_id = "results/test_finetune_llama_yahoo9_4/checkpoint-77885" 
     save_path = analysis.make_cache_dir_name(base_model_path=base_model_id,
                                             peft_path=peft_model_id)
+    print_and_write(f"{time_elapsed_str(start_time)}Looking for activations in\n{save_path}")
     
     # print(save_path)
     all_files = sorted(os.listdir(os.path.join(save_path, "activations")))
+    print_and_write(f"{time_elapsed_str(start_time)}Searcing matches among {len(all_files)} activation files")
 
     # - iterate over the recipes to make the tensor names
     dataset_name = "yahoo"
@@ -138,7 +140,7 @@ def do_code(args):
     for filename in filepaths:
         act = {}
         with safe_open(filename, framework="pt") as f:
-            print("keys: ", f.keys())
+            # print("keys: ", f.keys())
             for k in f.keys():
                 act[k] = f.get_tensor(k)
                 # print(act[k])
@@ -146,9 +148,9 @@ def do_code(args):
         activations.append(matrix.Matrix(act["activations"]).flatten()) 
             # save as Matrix and flatten
         
-        print_and_write(filename, logfile)
+        print_and_write(f"{time_elapsed_str(start_time)}Loading from {filename}", logfile)
 
-    print_and_write(f"\n{time_elapsed_str(start_time)}Total Number of Activation Matrices: " + len(activations), logfile)
+    print_and_write(f"\n{time_elapsed_str(start_time)}Total Number of Activation Matrices: {len(activations)}", logfile)
     
 
     for similarity in ("bw", "fro"):
@@ -179,7 +181,7 @@ def do_code(args):
     
     total_time = time.time() - start_time
     print_and_write(f"{SEPARATOR}{time_elapsed_str(start_time)}Finished all seeds", logfile)
-    print_and_write(f"\n{time_elapsed_str(start_time)}Total time elapsed: {total_time}")
+    print_and_write(f"\n{time_elapsed_str(start_time)}Total time elapsed: {total_time}", logfile)
     close_files(logfile)
 
     if args.alert:
@@ -192,8 +194,9 @@ def do_code(args):
         message=f"""This is an automated message. Your code 
         `get_mds_coordinates_mult_seeds` is complete. Run details:\n\n"""
         message=display_message(message)
+
         for head, cont in rows:
-            message += f"{head:<15} : {cont:<len(coord_savefile)}"
+            message += f"{head:<15} : {cont}"
         
         subject = "COMPLETE: remote arch job"
         # send email
