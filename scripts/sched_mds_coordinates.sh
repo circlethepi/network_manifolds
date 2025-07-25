@@ -8,7 +8,7 @@
 #SBATCH --ntasks-per-node=2
 #SBATCH --cpus-per-task=6
 
-#SBATCH --array=0-15%4
+#SBATCH --array=12%4
 
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=mohata1@jh.edu
@@ -22,7 +22,7 @@ cd $HOME/scratchcpriebe1/MO/network_manifolds/scripts
 echo "Running layer $SLURM_ARRAY_TASK_ID"
 
 # run script (hopefully)
-python ~/scratchcpriebe1/MO/network_manifolds/scripts/get_MDS_coordinates_mult_seeds.py --layer "$SLURM_ARRAY_TASK_ID" --act-count 1 --dir "scripts/sync/stab_multi0" --alert --logfile "sim_MDS_$SLURM_ARRAY_TASK_ID.log"
+python ~/scratchcpriebe1/MO/network_manifolds/scripts/get_MDS_coordinates_mult_seeds.py --layer "$SLURM_ARRAY_TASK_ID" --act-count 1 --dir "scripts/sync/coordinates/stab_multi0" --alert --logfile "0sim_MDS_$SLURM_ARRAY_TASK_ID.log" 
 
 
 wait
