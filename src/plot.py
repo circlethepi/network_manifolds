@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm # for settings
 from mpl_toolkits import axes_grid1 # for colorbar
 from matplotlib.ticker import ScalarFormatter # for (linear) tick format
+import colorsys
 
 from typing import Union, Optional
 
@@ -32,6 +33,7 @@ GLOBAL_DPI = 600
 
 DEFAULT_LABEL_PAD_X = 15
 DEFAULT_LABEL_PAD_Y = 30
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                          matplotlib restyling settings
@@ -81,8 +83,9 @@ lin_formatter.set_scientific(True)
 lin_formatter.set_powerlimits((-3, 3)) # default 
 
 
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                       Component/Plot Format Utility Functions
+#                           Component/Plot Formatters
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 def with_ax(func):
@@ -177,6 +180,7 @@ def plot_labels(ax=None, title=None,
         ax.set_ylim(ylims[0], ylims[1])
 
     # --------------------
+
     # title
     if check_if_null(title, False, True):
         ax.set_title(title)
@@ -292,22 +296,12 @@ def plot_colorbar(mappable=None,
         cbar_ticks = check_if_null(cbar_ticks, cvals) # set values as ticks
         
         # colormap validation
-        colormap = check_if_null(colormap, mpl.cm.viridis)
-        if isinstance(colormap, str):
-            colormap = plt.get_cmap(colormap)
+        colormap = get_colormap(colormap)
         
         # norm validation
-        colornorm = check_if_null(colornorm, 
+        colornorm = get_colornorm(check_if_null(colornorm, 
                                   mpl.colors.Normalize(vmin=np.min(cvals), 
-                                                       vmax=np.max(cvals)))
-        colornorm = format_data(colornorm)
-        if isinstance(colornorm, np.ndarray):
-            message = """`colornorm` contains more than 2 values. Using only
-                      the first two for normalization"""
-            if colornorm.shape[0] > 2:
-                print(display_message(message))
-            colornorm = mpl.colors.Normalize(vmin=colornorm[0], 
-                                             vmax=colornorm[1])
+                                                       vmax=np.max(cvals))))
         
         # create the mappable
         mappable = mpl.cm.ScalarMappable(norm=colornorm, cmap=colormap)
@@ -412,8 +406,12 @@ def end_fig(fig_or_ax=None, show=True, savename=None, dir=None,
     
 
 
+
+
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                           Data/Text Format Helpers 
+#                          Plotting Specific Utilities 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 def space_ticks(limits, n_ticks, keep0=False):
@@ -526,11 +524,126 @@ def shift_scinot_fmt_text(axis='x', dx=0, dy=0, color="#999999", ax=None):
     offset.set_color(color)
 
 
+def translate(points, origin=(0,0)):
+    """
+    :param points:  array of shape (N, 2)
+    :param origin:  array or tuple; coordinates of new origin
 
+    :return translated:     array of shape (N, 2) of translated points
+    """
+    translation = np.asarray(origin)
+    if np.max(np.abs(translation)) == 0:
+        return points
+
+    # validation for points
+    message = """Points should be of shape (N, 2)"""
+    if points.shape[1] != 2:
+        raise ValueError(display_message(message))
+    
+    translated = points - translation
+
+    return translated
+
+
+def get_colormap(cmap):
+    """Resolves cmap input into an mpl.colors.Colormap"""
+    cmap = check_if_null(cmap, "viridis")
+
+    if isinstance(cmap, mpl.colors.Colormap):
+        return cmap
+    elif isinstance(cmap, str):
+        return mpl.colormaps[cmap]
+    else:
+        message = f"""Expected a string or matplotlib.colors.Colormap, got 
+        {type(cmap)}"""
+        raise TypeError(display_message(message))
+
+
+def get_colornorm(cnorm):
+    """Resolves cnorm input into an mpl.colors.Normalize"""
+    cnorm = check_if_null(cnorm, [0, 1])
+
+    if isinstance(cnorm, mpl.colors.Normalize):
+        return cnorm
+    
+    else:
+        try:
+            cnorm = np.asarray(cnorm)
+        except Exception:
+            message = """colornorm must be None, a Normalize, or a (vmin, vmax)
+            value."""
+            raise TypeError(display_message(message))
+
+        if len(cnorm) == 1 and cnorm > 0:
+            message = """WARNING: Only 1 value provided for colornorm. Using
+            this as vmax value."""
+            return mpl.colors.Normalize(vmin=0, vmax=cnorm)
+        elif len(cnorm) >= 2:
+            if len(cnorm) > 2:
+                message = """WARNING: More than 2 values provided for colornorm. 
+                Using only the first two."""
+                print(display_message(message))
+            return mpl.colors.Normalize(vmin=cnorm[0], vmax=cnorm[1])
+        
+    
+
+    
+    
+
+def cmap_rgba(vals, cmap:Optional[Union[str, mpl.colors.Colormap]]=None, 
+              cnorm=None, new_a:float=1.):
+    """Gets RGBA value for a given value in a colormap with a norm
+
+    :param vals: float|array-like   shape (N,) val(s) to map into cmap
+    :param cmap: str|Colormap|None  colormap to use (default: None -> viridis)
+    :param cnorm: array-like|Normalize|None     How to normalize the values
+    :param new_a: float     new alpha value. Float in [0, 1]
+
+    :return rgbas: list(tuple)      RGBA tuples corresponding to the values in
+                                    the colormap
+    """
+    cmap = get_colormap(cmap)
+    cnorm = get_colornorm(cnorm)
+
+    vals = np.atleast_1d(vals)
+    normed = cnorm(vals)
+    rgbas = cmap(normed)   # (N, 4)
+
+    if check_if_null(new_a, False):
+        message = f"""`new_a`={new_a} not between (0, 1). Clipping to range."""
+        if new_a < 0 or new_a > 1:
+            print(display_message(message))
+        new_a = np.clip(new_a, 0., 1.)
+
+        rgbas[:, 3] = new_a
+    
+    return rgbas
+
+
+def lighten_color(color, amount=0.5):
+    """Lightens the given color by multiplying (1-luminosity) by the given 
+    amount. Input can be matplotlib color string, hex string, or RGB tuple.
+    Darkens if amount > 1. 
+
+    Examples:
+    >> lighten_color('g', 0.3)
+    >> lighten_color('#F034A3', 0.6)
+    >> lighten_color((.3,.55,.1), 0.5)
+    
+    Directly from https://stackoverflow.com/questions/37765197/darken-or-lighten-a-color-in-matplotlib
+
+    :return lightened color as RGB tuple
+    """
+    try:
+        c = mpl.colors.cnames[color]
+    except:
+        c = color
+    c = colorsys.rgb_to_hls(*mpl.colors.to_rgb(c))
+    return colorsys.hls_to_rgb(c[0], max(0, min(1, amount*(1-c[1]))), c[2])
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                       Basic Plotting Utility Functions
+#                            Basic Plotting Functions
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 @with_ax
@@ -563,6 +676,9 @@ def plot_vlines(ax=None, xvals=None, ymin=None, ymax=None,
     """Plot vertical lines at specified x-values with optional labels
     
     **kwargs additional vline arguments (eg. alpha, zorder, etc.)
+
+    :return ax:     the matplotlib axes the lines were on
+    :return legend_dict:    dict [label -> lines] for creating a legend
     """
     ymin = check_if_null(ymin, 0)
     ymax = check_if_null(ymax, 1)
@@ -579,6 +695,117 @@ def plot_vlines(ax=None, xvals=None, ymin=None, ymax=None,
         legend_dict.update({label: lines})
 
     return ax, legend_dict
+
+
+@with_ax
+def plot_scatter(xs, ys, ax=None, color=None, marker="o", size=20, label=None,
+                 legend_dict=None, **kwargs):
+    """Plot a scatter plot
+    :param xs:      size (N,)
+    :param ys:      size (N,)
+    :param color:   matplotlib color options
+    :param size:    radii of points (default: 20)
+    :param label:   str or sequence of str. If sequence, should be the same 
+                    length number of markers.
+    :param kwargs:  additional scatter arguments, see matplotlib docs
+    """
+
+    def pointwise(x, default, n=len(xs), multi=False):
+        """Converts colors, markers, and sizes so each point has its own"""
+        out_shape = (n,) if not multi else (n,) + np.shape(np.asarray(default))
+        if check_if_null(x, True, False):
+            out = np.full(out_shape, default)
+        elif isinstance(x, tuple) or isinstance(x, list) \
+            or isinstance(x, np.ndarray):
+            out = np.asarray(x)
+            if multi and (out.ndim == 2) and (out.shape[0] == 1):
+                out = np.repeat(out, n, axis=0)
+        else:
+            out = np.full(out_shape, x)
+        return out
+    
+    xs = pointwise(xs, None)
+    ys = pointwise(ys, None)
+    colors = pointwise(color, "C0", multi=True)
+    sizes = pointwise(size, 20) ** 2
+    markers = pointwise(marker, "o")
+    u_marks = np.unique(markers)
+
+    # validation for labels
+    multilab = False
+    if check_if_null(label, False, True):
+        legend_dict = check_if_null(legend_dict, {})
+        message = """Number of labels should be equal to the number of 
+        different markers if more than one"""
+        if not isinstance(label, str):
+            if len(label) < len(u_marks):
+                raise ValueError(display_message(message))
+            elif len(label) > len(u_marks):
+                message = f"""{len(label)} labels provided but only 
+                {len(u_marks)} markers. Only using the first {len(u_marks)}
+                labels"""
+                print(display_message(message))
+            multilab = True
+
+    for k, mark in enumerate(u_marks):
+        mask = (markers == mark) 
+        lab = label[k] if multilab else label
+        points = ax.scatter(xs[mask],ys[mask], c=colors[mask], s=sizes[mask], 
+                            marker=mark, label=lab, **kwargs)
+        if check_if_null(lab, False):
+            legend_dict.update({lab: points})
+        
+    return ax, legend_dict
+
+
+@with_ax
+def plot_SD(mean, lengths, directions, ax=None, n_stds:list=[1], edgecolor='k',
+            ellipse:bool=True, label=None, legend_dict=None, **kwargs):
+    """Plots arrows or ellipses to represent spread of data
+    :param mean:
+    :param lengths:
+    :param directions:
+    :param ax:
+    :param n_stds:
+    :param edgecolor:
+    :param ellipse:
+    :param kwargs:
+    
+    :return ax:
+    :return var_plot:
+    """
+    mean = format_data(mean)
+
+
+    # ellipse plotting
+    if ellipse: 
+        # angle of first axis
+        angle = np.degrees(np.arctan2(directions[0][1], directions[0][0]))
+
+        do_label = check_if_null(label, False, True)
+        for s in n_stds:
+            label = label if do_label else None
+            width = 2 * s * lengths[0]
+            height = 2 * s * lengths[1]
+
+            patch = mpl.patches.Ellipse(xy=mean, width=width, height=height,
+                                        angle=angle, edgecolor=edgecolor,
+                                        facecolor='none', label=label, 
+                                        **kwargs)
+            
+            ax.add_patch(patch)
+
+            if do_label:
+                legend_dict = check_if_null(legend_dict, {})
+                legend_dict.update({label: patch})
+                do_label = False
+
+    # TODO add plotting arrows (when ellipse=False)
+
+    return ax, legend_dict
+
+
+
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -605,7 +832,8 @@ def plot_similarity_matrix(sims, full_matrix:bool=False,
                            mask_color='#cffcff', nan_color='#ffaffa',
 
                            do_colorbar=True, cbar_label="similarity",
-                           cbar_ticks=None, cbar_location=None, 
+                           cbar_ticks=None, cbar_ticklabs=None,
+                           cbar_location=None, 
                            cbar_horizontal=True, cbar_pad_in=None,
 
                            savename=None, savedir_override=None, 
@@ -619,6 +847,8 @@ def plot_similarity_matrix(sims, full_matrix:bool=False,
     """Plot similarity matrix heatmap with colorbar
     nan_color option is for if there are nan values in the matrix
     """
+    # print("origin: ", ("upper" if origin_upper else "lower"), 
+    #       ("right" if origin_right else "left"))
     # TODO better documentation
     # WISHLIST better arguments for this
     tick_positions = check_if_null(tick_positions, 
@@ -633,7 +863,7 @@ def plot_similarity_matrix(sims, full_matrix:bool=False,
     mask = np.zeros_like(sims, dtype=bool) if full_matrix \
            else tri(np.ones_like(sims, dtype=bool), k=0)
     
-    colormap = check_if_null(colormap, mpl.cm.binary)
+    colormap = get_colormap(check_if_null(colormap, mpl.cm.binary))
     colormap.set_bad(mask_color)
 
     # plotting the matrix
@@ -668,7 +898,8 @@ def plot_similarity_matrix(sims, full_matrix:bool=False,
     # colorbar
     if do_colorbar:
         cbar_ticks = check_if_null(cbar_ticks, np.linspace(vmin, vmax, 5))
-        plot_colorbar(outmap, cbar_ticks=cbar_ticks, cbar_label=cbar_label, 
+        plot_colorbar(outmap, cbar_ticks=cbar_ticks, 
+                      cbar_ticklabs=cbar_ticklabs, cbar_label=cbar_label, 
                         labelpad=40, location_override=cbar_location,
                         horizontal=cbar_horizontal, 
                         pad_in=check_if_null(cbar_pad_in, DEFAULT_CBAR_PAD))
@@ -699,7 +930,6 @@ def plot_similarity_matrix(sims, full_matrix:bool=False,
                 dir=savedir_override)
 
     return outmap
-
 
 # Package the mds plotting function more nicely
 @with_ax
@@ -752,3 +982,124 @@ def plot_MDS(coords, ax=None,
                 dir=savedir_override)
 
     return scat
+
+
+@with_ax
+def plot_scatter_var(coords:np.ndarray, ax=None, origin=None,
+            color_val=None, cmap=None, cnorm=None,
+            marker="o", msize=20,
+
+            do_mean:bool=True, do_var:bool=True, n_stds=[1,],
+
+            var_a=0.5, mean_a=1, data_a=0.2,
+            
+            label=None, legend_dict=None,
+            add_var_to_legend=False,
+            add_mean_to_legend=True,
+            add_data_to_legend=False
+            
+            ):
+    """Plot a set of coordinates. Intended for use with generated MDS 
+    coordinates to show mean and SD of different experiments. Coordinates 
+    should be of shape (N, 2). Generally, one grouping of points
+
+    :param coords: np.ndarray       shape (N, 2) the coordinates to plot.  
+    :param ax: matplotlib axes      axes to place plot on
+    :param origin:          new origin to translate the coordinates 
+                            (default: None)
+    :param color_val:       color for the points to be used with colormap
+    :param cmap: matplotlib colormap    colormap used in conjunction with 
+                                        color_val to color the points
+    :param cnorm: matplotlib color Normalization      
+    :param marker: str      marker shape for the points
+    :param msize: int       n_pixels radius of the points
+
+    :param do_mean: bool    whether to calculate and plot the mean of the 
+                            coordinates (default: True)
+    :param do_var: bool     whether to calculate and plot the variance/SD of 
+                            the coordinates (default: True). `do_var=True` 
+                            forces `do_mean=True`
+    
+    :param mean_a: float    float in [0,1] - alpha value of the mean point 
+                            (default: 1)
+    :param data_a: float    float in [0,1] - alpha value of the data points
+                            (default: 0.2 if do_mean, otherwise 1)
+    
+    """
+    data_a = check_if_null(data_a, 0.2) if do_mean else 1.
+    # check the color
+    if isinstance(color_val, float):
+        color_val = cmap_rgba(color_val, cmap, cnorm, new_a=data_a)
+
+        if do_mean:
+            color_mean = color_val.copy()
+            color_mean[:, 3] = check_if_null(mean_a, 1)
+        if do_var:
+            color_var = color_val.copy()
+            color_var[:, :3] = lighten_color(color_var[:, :3], 0.3)
+            color_var[:, 3] = check_if_null(var_a, 0.6)
+
+    # TODO more type handling for the color val
+
+    coords = translate(coords, origin=check_if_null(origin, (0,0))) # (N, 2)
+ 
+    # plot the scatter
+    ax, legend_dict = plot_scatter(coords[:,0], coords[:, 1], ax=ax, 
+                                color=color_val, marker=marker, size=msize, 
+                                label=label, legend_dict=legend_dict)
+    
+    # get mean and CIs
+    def get_coord_axes(c):
+        mean = np.mean(c, axis=0)  # get mean  (2,)
+
+        centered = c - mean
+        cov = (1/c.shape[0])*centered.T @ centered    # get centered cov (2, 2)
+
+        vals, vecs = np.linalg.eigh(cov)
+        vals, vecs = np.flip(vals), np.flip(vecs)
+
+        lengths = [np.sqrt(k) for k in vals[:2]]    # get SD lengths 
+        directions = [vecs[:, k] for k in (0,1)]    # get SD directions
+
+        return mean, lengths, directions # lengths and directions len = 2
+    
+    if do_var:
+        mean, lengths, directions = get_coord_axes(coords)
+
+    elif do_mean:
+        mean = np.mean(coords.T, axis=0)
+        lengths, directions = None, None
+    else:
+        mean, lengths, directions = None, None, None
+    
+    # plot the mean
+    if check_if_null(mean, False, True):
+        print(mean)
+        ax, legend_dict = plot_scatter([mean[0]],[mean[1]], ax=ax, 
+                                               color=color_mean, marker=marker,
+                                               size=msize, label=label,
+                                               legend_dict=legend_dict)
+    
+    
+    # add the arrows
+    if check_if_null(lengths, False, True):
+        # first axis
+        var_label = check_if_null(label, None, label + " SD") if \
+                    add_var_to_legend else None
+
+        ax, legend_dict = plot_SD(mean=mean, lengths=lengths, 
+                                  directions=directions, ax=ax, n_stds=n_stds,
+                                  edgecolor=color_var, ellipse=True,
+                                  label=var_label, legend_dict=legend_dict,
+                                  linestyle="--")
+
+
+
+    # TODO add variance label to dict
+    
+    
+
+    
+    return
+
+
