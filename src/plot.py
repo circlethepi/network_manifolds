@@ -157,7 +157,7 @@ def plot_labels(ax=None, title=None,
 
     # x axis label
     if check_if_null(xlab, False, True):
-        ax.set_xlabel(xlab, labelpad=xlabelpad)
+        ax.set_xlabel(xlab, labelpad=xlabelpad, rotation=xrot)
 
     # x axis limits
     lim_message = """Axis limits must be exactly two values: (min, max)"""
@@ -172,7 +172,8 @@ def plot_labels(ax=None, title=None,
 
     # y axis label
     if check_if_null(ylab, False, True):
-        ax.set_ylabel(ylab, rotation=0 if left else -90, labelpad=ylabpad)
+        ax.set_ylabel(ylab, rotation=check_if_null(yrot, 0 if left else -90), 
+                      labelpad=ylabpad)
 
     # y axis limits
     if check_if_null(ylims, False, True):
@@ -546,7 +547,8 @@ def translate(points, origin=(0,0)):
 
 
 def get_colormap(cmap):
-    """Resolves cmap input into an mpl.colors.Colormap"""
+    """Resolves cmap input into an mpl.colors.Colormap. If none is provided,
+    defaults to 'viridis' """
     cmap = check_if_null(cmap, "viridis")
 
     if isinstance(cmap, mpl.colors.Colormap):
@@ -586,10 +588,6 @@ def get_colornorm(cnorm):
             return mpl.colors.Normalize(vmin=cnorm[0], vmax=cnorm[1])
         
     
-
-    
-    
-
 def cmap_rgba(vals, cmap:Optional[Union[str, mpl.colors.Colormap]]=None, 
               cnorm=None, new_a:float=1.):
     """Gets RGBA value for a given value in a colormap with a norm
@@ -623,7 +621,7 @@ def cmap_rgba(vals, cmap:Optional[Union[str, mpl.colors.Colormap]]=None,
 def lighten_color(color, amount=0.5):
     """Lightens the given color by multiplying (1-luminosity) by the given 
     amount. Input can be matplotlib color string, hex string, or RGB tuple.
-    Darkens if amount > 1. 
+    Darkens if amount < 1. 
 
     Examples:
     >> lighten_color('g', 0.3)
@@ -639,7 +637,7 @@ def lighten_color(color, amount=0.5):
     except:
         c = color
     c = colorsys.rgb_to_hls(*mpl.colors.to_rgb(c))
-    return colorsys.hls_to_rgb(c[0], max(0, min(1, amount*(1-c[1]))), c[2])
+    return colorsys.hls_to_rgb(c[0], min(1, amount*(1-c[1])), c[2])
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -752,7 +750,7 @@ def plot_scatter(xs, ys, ax=None, color=None, marker="o", size=20, label=None,
         lab = label[k] if multilab else label
         points = ax.scatter(xs[mask],ys[mask], c=colors[mask], s=sizes[mask], 
                             marker=mark, label=lab, **kwargs)
-        if check_if_null(lab, False):
+        if check_if_null(lab, False, True):
             legend_dict.update({lab: points})
         
     return ax, legend_dict
@@ -760,7 +758,8 @@ def plot_scatter(xs, ys, ax=None, color=None, marker="o", size=20, label=None,
 
 @with_ax
 def plot_SD(mean, lengths, directions, ax=None, n_stds:list=[1], edgecolor='k',
-            ellipse:bool=True, label=None, legend_dict=None, **kwargs):
+            ellipse:bool=True, arrows:bool=True, label=None, legend_dict=None, 
+            **kwargs):
     """Plots arrows or ellipses to represent spread of data
     :param mean:
     :param lengths:
@@ -800,12 +799,33 @@ def plot_SD(mean, lengths, directions, ax=None, n_stds:list=[1], edgecolor='k',
                 legend_dict.update({label: patch})
                 do_label = False
 
-    # TODO add plotting arrows (when ellipse=False)
+    # TODO add plotting arrows
 
     return ax, legend_dict
 
 
+@with_ax
+def plot_line(xs, ys, ax=None, color=None, linestyle='-', linewidth=1.5,
+              label=None, legend_dict=None, **kwargs):
+    """Plot a line plot
+    :param xs:      size (N,)
+    :param ys:      size (N,)
+    :param color:   matplotlib color options
+    :param linestyle:   line style (default: '-')
+    :param linewidth:   line width (default: 1.5)
+    :param label: str
+    :param kwargs:  additional plot arguments, see matplotlib docs
+    """
 
+    line = ax.plot(xs, ys, color=color, linestyle=linestyle, linewidth=linewidth,
+                   label=label, **kwargs)
+    
+    # add to legend if label is provided
+    if check_if_null(label, False, True):
+        legend_dict = check_if_null(legend_dict, {})
+        legend_dict.update({label: line[0]})
+    
+    return ax, legend_dict
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -991,12 +1011,20 @@ def plot_scatter_var(coords:np.ndarray, ax=None, origin=None,
 
             do_mean:bool=True, do_var:bool=True, n_stds=[1,],
 
-            var_a=0.5, mean_a=1, data_a=0.2,
+            var_a=0.5, mean_a=1, data_a=0.2, var_darken:float=0.8,
             
             label=None, legend_dict=None,
             add_var_to_legend=False,
             add_mean_to_legend=True,
-            add_data_to_legend=False
+            add_data_to_legend=False,
+
+            # plot info stuff
+            equal=False, 
+            title:Optional[str]=None, 
+            xticks:Optional[any]=None, yticks:Optional[any]=None,
+            xlab:Optional[str]="MDS d1", ylab:Optional[str]="MDS d2",
+            xlims=None, ylims=None, xrot=0, yrot=0,
+            format=True,
             
             ):
     """Plot a set of coordinates. Intended for use with generated MDS 
@@ -1027,23 +1055,32 @@ def plot_scatter_var(coords:np.ndarray, ax=None, origin=None,
     
     """
     data_a = check_if_null(data_a, 0.2) if do_mean else 1.
-    # check the color
-    if isinstance(color_val, float):
-        color_val = cmap_rgba(color_val, cmap, cnorm, new_a=data_a)
 
-        if do_mean:
-            color_mean = color_val.copy()
-            color_mean[:, 3] = check_if_null(mean_a, 1)
-        if do_var:
-            color_var = color_val.copy()
-            color_var[:, :3] = lighten_color(color_var[:, :3], 0.3)
-            color_var[:, 3] = check_if_null(var_a, 0.6)
+    # check the colors
+    if isinstance(color_val, (float, int)):
+        color_val = cmap_rgba(color_val, cmap, cnorm, new_a=data_a)
+    else:
+        color_val = mpl.colors.to_rgb(color_val)
+        color_val[:, 3] = data_a # adjust alpha value
+    ## Colors for Mean
+    if do_mean or do_var:
+        color_mean = color_val.copy()
+        color_mean[:, 3] = check_if_null(mean_a, 1) # adjust mean alpha
+    ## Colors for Var / SD
+    if do_var:
+        color_var = color_val.copy()
+        if check_if_null(var_darken, False, True):
+            color_var[:, :3] = lighten_color(color_var[:, :3], var_darken)
+        color_var[:, 3] = check_if_null(var_a, 0.8) # adjust var alpha
 
     # TODO more type handling for the color val
-
-    coords = translate(coords, origin=check_if_null(origin, (0,0))) # (N, 2)
+    coords = translate(format_data(coords), 
+                       origin=check_if_null(origin, (0,0))) # (N, 2)
  
     # plot the scatter
+    data_label = check_if_null(label, None, label) if \
+                    add_data_to_legend else None
+    legend_dict = check_if_null(legend_dict, {})
     ax, legend_dict = plot_scatter(coords[:,0], coords[:, 1], ax=ax, 
                                 color=color_val, marker=marker, size=msize, 
                                 label=label, legend_dict=legend_dict)
@@ -1065,41 +1102,41 @@ def plot_scatter_var(coords:np.ndarray, ax=None, origin=None,
     
     if do_var:
         mean, lengths, directions = get_coord_axes(coords)
-
     elif do_mean:
-        mean = np.mean(coords.T, axis=0)
+        mean = np.mean(coords, axis=0) # (2,)
         lengths, directions = None, None
     else:
         mean, lengths, directions = None, None, None
     
     # plot the mean
-    if check_if_null(mean, False, True):
-        print(mean)
+    if check_if_null(mean, False, True) and do_mean:    # do_mean sanity
+        mean_label = check_if_null(label, None, label) if \
+                        add_mean_to_legend else None
         ax, legend_dict = plot_scatter([mean[0]],[mean[1]], ax=ax, 
                                                color=color_mean, marker=marker,
-                                               size=msize, label=label,
-                                               legend_dict=legend_dict)
+                                               size=msize, label=mean_label,
+                                               legend_dict=legend_dict, 
+                                               zorder=2)
     
     
-    # add the arrows
-    if check_if_null(lengths, False, True):
+    # plot the variance
+    if check_if_null(lengths, False, True) and do_var:  # do_var sanity
         # first axis
-        var_label = check_if_null(label, None, label + " SD") if \
+        var_label = check_if_null(label, None, label + f"{max(n_stds)}SD") if \
                     add_var_to_legend else None
 
         ax, legend_dict = plot_SD(mean=mean, lengths=lengths, 
                                   directions=directions, ax=ax, n_stds=n_stds,
                                   edgecolor=color_var, ellipse=True,
                                   label=var_label, legend_dict=legend_dict,
-                                  linestyle="--")
+                                  linestyle="--", zorder=3)
 
-
-
-    # TODO add variance label to dict
+    # TODO add formatting options, including whether to apply styles
+    # TODO end fig
+    # TODO add option to include lengths and directions for SD ?
     
-    
-
-    
-    return
+    return ax
 
 
+
+# WISHLIST plotting preferences item that holds ticks, labels, etc passed into plotting functions

@@ -195,4 +195,3 @@ def compose_and_send_email(content, subject=None, send_to=EMAIL_USER,
     email = compose_email(subject, content)
     send_email(email, send_to=send_to, send_from=send_from, server=server)
     return
-

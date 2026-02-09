@@ -14,6 +14,8 @@ import os
 import re
 from typing import Optional, Union
 
+from safetensors import safe_open
+
 from src.utils import check_if_null, display_message
 import src.matrix as matrix
 import src.plot as plot
@@ -22,7 +24,7 @@ from sklearn import manifold
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                           Similarity to Coordinates           
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 
 
 def compute_MDS(sim_matrix, n_components:int=2, zero_index:Optional[int]=None, 
@@ -135,11 +137,17 @@ class SimilaritySpace:
     Class for dealing with a similarity space
     """
 
-    def __init__(self, similarity_matrix, seed:int=0,
+    def __init__(self, 
+                 result_file:Optional[str]=None,
+                 similarity_matrix=None, seed:int=0,
                  coordinates=None, name:Optional[str]=None,
-                 sub_names=None):
+                 sub_names=None, splits=None):
         """
         
+        :param result_file: str|None    safetensors filepath with at least one 
+                                        of the similarity matrix or MDS
+                                        coordinates under the corresponding
+                                        keys
         :param similarity_matrix: array-like  The similarity matrix that 
                                                 generates the space we work in.
                                                 Should be (N, N), symmetric,
@@ -147,17 +155,44 @@ class SimilaritySpace:
         :param seed: int        seed for MDS calculation
         :param coordinates np.array|None    pre-computed MDS coordinates
 
+        
+        If a quantity (similarity matrix or coordinates) and a results file is
+        provided also containing that quantity, the provided value will be used 
+        instead. 
         """
+
+        self.file = result_file
+        
+        if check_if_null(result_file):
+            store = {}
+            with safe_open(result_file, framework='pt') as f:
+                for k in f.keys():
+                    store[k] = f.get_tensor(k)
+            
+            if 'coordinates' in store:
+                coordinates = check_if_null(coordinates, store['coordinates'])
+            if 'similarity_matrix' in store:
+                similarity_matrix = check_if_null(similarity_matrix, 
+                                                  store['similarity_matrix'])
 
         self.similarity_matrix = similarity_matrix
         self.seed = seed 
-        self.n = similarity_matrix.shape[-1]
+        self.splits = splits
 
         # names and stuff
         self.name = name
         self.sub_names = sub_names
 
+        # coordinates
         self.coordinates = coordinates
+        
+        # number of elements
+        if self.similarity_matrix is not None:
+            self.n = self.similarity_matrix.shape[-1]
+        elif self.coordinates is not None:
+            self.n = self.coordinates.shape[0]
+        else:
+            self.n = None
     
 
     def compute_coords(self, align_coords:bool=True,
@@ -244,6 +279,9 @@ class SimilaritySpace:
         """Plot similarity matrix with custom plotting function 
         (see plot.py for more details)"""
 
+        message = "No similarity matrix defined"
+        assert self.similarity_matrix is not None, display_message(message)
+
         title = check_if_null(check_if_null(title, self.name), "similarity")
         ticks = check_if_null(ticks, range(self.n))
 
@@ -251,6 +289,7 @@ class SimilaritySpace:
                                  ["" for k in range(self.n)])
         
         plot.plot_similarity_matrix(sims=self.similarity_matrix,
+                                    splits = self.splits,
                                     title=title, axis_label=axis_label,
                                     ticks=ticks, ticklabs=ticklabs,
                                     vmin=vmin, vmax=vmax, rotation=rotation,
@@ -263,12 +302,101 @@ class SimilaritySpace:
                                     full_matrix=full_matrix)
 
 
-# WISHLIST add handling for multiple sets of coordinates
-
-       
+    def group_coordinates(self, splits, indices=False, name=None):
+        """Groups coordinates into subgroups
         
+        :param splits: dict|array-like(int)     where to split the coordinates
+        
+        integer or array-like collection of integers
+        - the number of elements in all groups
 
-    
+        dictionary
+        - [name of group] -> [size of group: int]
 
+        :param indices: bool    whether to instead treat split values as
+                                indices instead of counts. Default: False
+        :param name:    list of names for the groups        
+        """
+        # TODO add error checks
+        
+        all_coords = self.compute_coords()
+
+        if isinstance(dict, splits):
+            names, inds = dict_to_inds(splits)
+        else:
+            inds = splits if indices else counts_to_inds(splits)
     
+        names = check_if_null(names, range(len(inds))) 
+
+        coord_groups = split_coordinates(all_coords, inds)
+
+        grouped_names = dict(zip(names, coord_groups))
+
+        return grouped_names
+
+# WISHLIST add handling for multiple sets of coordinates
+# WISHLIST add handling to read from a file
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                               DKPS Utilities
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
+        
+def split_coordinates(coords, inds):
+    """split coordinates by indices. Coords should be of shape (N, 2)"""
+
+    if inds[-1] < coords.shape[0] - 1:
+        inds.append(coords.shape[0] - 1)
+
+    split_coords = []
+
+    for h in range(len(inds)-1):
+        lo, hi = inds[h], inds[h+1]
+        split_coords.append(coords[lo:hi])
+    
+    return split_coords
+
+
+def counts_to_inds(counts):
+    """convert a list of counts into list of indices for splitting"""
+    inds = []
+    last = 0
+    for i in counts:
+        last = last + i
+        inds.append(last)
+
+    return inds
+
+
+def dict_to_inds(splits, indices=False):
+    """converts a dictionary into names and splits
+    [name of group] -> [size of group: int]
+    
+    :param splits: dict     the names and splits
+    :param indices: bool    whether the splits/sizes are indices
+    """
+
+    names = list(splits.keys())
+    counts = list(splits.values())
+
+    out = counts if indices else counts_to_inds(splits)
+
+    return names, out
+
+
+def coord_variance(coords:np.ndarray):
+    """Calculate the mean and axes of variance for coordinates
+    :param coords: np.ndarray   coordinates of shape (N, 2)"""
+
+    mean = np.mean(coords, axis = 0)
+    centered = coords - mean
+    cov = (1/coords.shape[0]) * centered.T @ centered 
+
+    vals, vecs = np.linalg.eigh(cov)
+    vals, vecs = np.flip(vals), np.flip(vecs)
+
+    variance = vals[:2]
+    directions = np.array([vecs[:, k] for k in (0, 1)])
+
+    return mean, variance, directions
     
