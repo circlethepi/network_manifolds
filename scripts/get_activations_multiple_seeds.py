@@ -82,7 +82,7 @@ print("Layer names collected. Creating data split...")
 # load in the dataset
 yahoo_test = datasets.load_dataset("yahoo_answers_topics", split="train")
 # - filter for topics [8, 9] only
-split_test = data.topic_split_yahoo(yahoo_test, topics=[8, 9])[0]
+split_test = data.topic_split_yahoo(yahoo_test, topics=[8, 9])
 print(split_test)
 
 seed = seed_start  # start with the first seed

@@ -8,6 +8,7 @@ import random
 import os
 import textwrap
 import json
+import time
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -66,6 +67,18 @@ def close_files(*files):
             file.close()
     return
 
+
+def time_elapsed_str(start_time):
+    """returns the time elapsed since start_time in seconds"""
+    elapsed = time.time() - start_time
+    hours = int(elapsed // 3600)
+    minutes = int((elapsed % 3600) // 60)
+    seconds = int(elapsed % 60)
+    fraction = elapsed - int(elapsed)
+    return f"[{hours:02d}:{minutes:02d}:{seconds:02d}.{int(fraction * 100):02d}]\t"
+
+LOG_SEPARATOR = "\n" + "~"*80 + "\n"
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                              Value/Quantity Tracking
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
@@ -109,9 +122,9 @@ class AverageMeter(object):
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                            Errors and Validation        
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
-def check_if_null(named_param_or_var, dne_alt, exists_alt=None):
+def check_if_null(named_param_or_var, dne_alt=False, exists_alt=None):
     """ 
-    checks if an object exists and returns the given alternate if not
+    checks if an object exists and returns the given alternate if not.
     option to return a separate value if the object does exist also
 
     :param named_param_or_var: the object to check if None
@@ -142,7 +155,6 @@ import smtplib
 from email.message import EmailMessage
 
 
-
 def get_mail_login(infofile):
     """infofile should contain the username on the first line and the (app) 
     password on the second"""
@@ -160,7 +172,6 @@ def gmail_login(username, password):
 
 # WISHLIST more login options
 
-
 def compose_email(subject, content):
     """compose an email"""
     email = EmailMessage()
@@ -171,7 +182,7 @@ def compose_email(subject, content):
 # --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  -
 # Email Config  
 # --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  -
-EMAIL_FILE = "../mail.log"
+EMAIL_FILE = "/weka/home/mohata1/scratchcpriebe1/MO/network_manifolds/mail.log"
 EMAIL_USER, EMAIL_PASS = get_mail_login(EMAIL_FILE)
 
 def DEFAULT_SERVER():

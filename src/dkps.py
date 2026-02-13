@@ -336,6 +336,7 @@ class SimilaritySpace:
 
 # WISHLIST add handling for multiple sets of coordinates
 # WISHLIST add handling to read from a file
+# WISHLIST add handling to save to a file
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#

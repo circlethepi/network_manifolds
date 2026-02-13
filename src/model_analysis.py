@@ -73,7 +73,7 @@ def query_cache(savename:str, cache_dict:dict, compute:callable, recompute=False
     """
     Saving and checking cache for computed quantity
     """
-    if recompute or savename not in cache_dict:
+    if recompute or (savename not in cache_dict):
         cache_dict[savename] = compute()
     return cache_dict[savename]
 
@@ -89,14 +89,16 @@ class LoraAnalysis:
                 #  peft_local:bool=True, 
                  build_model:bool=True, 
                  n_layers:Optional[int]=None, 
-                 custom_name:Optional[str]=None):
+                 custom_name:Optional[str]=None,
+                 optimize_for_inference:bool=True):
         """
         param: base_model_path : str    path/name/id of the base model
         param: peft_path : str          path/name/id of the fine-tuned model
         param: build_model : bool       whether to build the fine-tuned model.
                                         This is necessary for most analyses.
                                         (default: True)
-
+        param custom_name : str|None    custom name to append to the cache path
+        param optimize_for_inference : bool whether to optimize the model for inference
         """
 
         self.device = get_device()
@@ -119,7 +121,6 @@ class LoraAnalysis:
         self.layer_name_dict = None
         self.layer_name_dict_weights = None
 
-        
         # caching
         # WISHLIST better caching functionality
         # WISHLIST add disc caching (eventually)
@@ -134,6 +135,12 @@ class LoraAnalysis:
         self.cache_file_path = cache_path
 
         self.cache = {} # cache key -> cached value
+
+        ## optimization for inference
+        if optimize_for_inference:
+            # self.model.set_attention_implementation("flash_attention_2") 
+            self.model.generation_config.cache_implementation = "static"
+            # per huggingface documentation https://huggingface.co/docs/transformers/main/llm_optims?static-kv=1.+cache_implementation#optimizing-inference
 
     
     def clear_cache(self):
@@ -176,6 +183,10 @@ class LoraAnalysis:
         base_model = AutoModelForCausalLM.\
                         from_pretrained(self.base_model_path, 
                                         torch_dtype="auto", device_map="auto")
+        # if no peft / LoRA, return the base model only
+        if self.peft_path is None:
+            return base_model
+
         return PeftModel.from_pretrained(base_model, self.peft_path)
 
     
@@ -257,7 +268,10 @@ class LoraAnalysis:
                 tensor_filename = alternate_tensor_name
             else:
                 tensor_filename = "adapter_model.safetensors"
-            tensor_path = os.path.join(self.peft_path, tensor_filename)
+            tensor_path = os.path.join(check_if_null(self.peft_path, ""), tensor_filename)
+
+            # TODO get layer names for base models (no LoRA layers!!!) 
+
 
             with safe_open(tensor_path, framework="pt") as file: 
                 layer_names = file.keys()
@@ -395,7 +409,9 @@ class LoraAnalysis:
                 
 
 
-    def inference(self, inputs:dict, states:bool=False, attention:bool=False):
+    def inference(self, inputs:dict, n_replicates:int=1,
+                  states:bool=False, attention:bool=False,
+                  max_new_tokens:int=512, ):
         """
         Do inference (does not collect activations). Inputs should be
         tokenized already.
@@ -411,8 +427,9 @@ class LoraAnalysis:
             outputs = model.generate(inputs=inputs['input_ids'].to(self.device),
                                      attention_mask=inputs['attention_mask']\
                                         .to(self.device), 
-                                    max_length=512,
-                                    return_dict_in_generate=True,
+                                    num_return_sequences=n_replicates,
+                                    max_new_tokens=max_new_tokens,
+                                    return_dict_in_generate=False,
                                     output_hidden_states=states,
                                     output_attentions=attention)
 
@@ -423,7 +440,7 @@ class LoraAnalysis:
                         return_outputs:bool=True, states:bool=True, 
                         attention:bool=True,
                         num_return_sequences:int=1,
-                        max_length:int=512,
+                        max_new_tokens:int=512,
 
                         input_name:Optional[str]=None,
                         output_device=None):
@@ -437,7 +454,7 @@ class LoraAnalysis:
         WISHLIST add option to save hidden states, attentions
         """
 
-        # TODO add disc saving functionality
+        # saving activations and outputs to disc
         act_save_path = os.path.join(self.cache_file_path, "activations")
         out_save_path = os.path.join(self.cache_file_path, "outputs")
 
@@ -453,7 +470,7 @@ class LoraAnalysis:
             states=states,
             attention=attention,
             num_return_sequences=num_return_sequences,
-            max_length=max_length,
+            max_new_tokens=max_new_tokens,
 
             # saving
             save_dir=act_save_path,
@@ -596,7 +613,7 @@ def filter_by_rules(all_strings:list, rules:Optional[Union[list, str, int]],
     return list(filtered)
 
 
-def make_cache_dir_name(base_model_path:str, peft_path:str, 
+def make_cache_dir_name(base_model_path:str, peft_path:Optional[str]=None, 
                         custom_name:Optional[str]=None):
     """
     returns the path to the analysis cache directory
@@ -617,14 +634,14 @@ def make_cache_dir_name(base_model_path:str, peft_path:str,
         (re.compile(r'^.*?results/'), ""),   # remove path to results dir
         (re.compile(r'/'), "__")           # replace "/" for names
     ]
-
+    paths = [base_model_path]
+    if check_if_null(peft_path): 
+        paths.append(peft_path)
     # apply the replacement rules
     names = []
-    for s in [base_model_path, peft_path]:
-        # print(s)
+    for s in paths:
         for pattern, replacement in rules:
             s = pattern.sub(replacement, s)
-            # print(s)
         names.append(s)
     names = "___".join(names)
 
@@ -691,33 +708,38 @@ def inference_with_activations(input:dict, layers:list[str], model,
     """ function to get model activations at the specified layers for the given
     input data/queries
     
-    :param input : dict of tokens   input['input_ids'] : tensor with shape
-                                    (batch_size, {max}_seq_len)
-    :param layers : list[str]   should be a list of layer names/attribute paths
+    :param input : dict of tokens   input['input_ids'] : tensor with 
+                                    shape (batch_size, {max}_seq_len)
+    :param layers : list[str]   should be a list of layer names/ 
+                                attribute paths
                                 each should be a torch.nn.Module
     :param model :   the model to do inference on
-    :param outputs : bool   whether to return the outputs of the model also
-    :param states : bool    whether to return the hidden states (output from
-                            embedding layer + all attention layers)
+    :param outputs : bool   whether to return the outputs of the model 
+    :param states : bool    whether to return the hidden states (output 
+                            from embedding layer + all attention layers)
     :param attention : bool whether to return the attention scores
-    :param num_return_sequences : int   number of sequences to return for each 
-                                        input sequence. Default is 1
-    :param max_length : int     maximum length of the output sequence. Default 
-                                is 512
+    :param num_return_sequences : int   number of sequences to return 
+                                        for each input sequence. ie 
+                                        replicates. Default is 1
+    :param max_length : int     maximum length of the output sequence. 
+                                Default is 512
 
-    :param concat_activations : bool    whether to concatenate the input and 
-                                        generation activations in one tensor.
-                                        Default is True
-    :param save_to_disc : bool      whether to save the activation tensors.
-                                    Default is True
-    :param save_path : str|None     (optional) path to save activation tensors 
-    :param input_name : str|None    (optional) an identifier for the input 
-                                    queries/strings for use when constructing 
-                                    the filenames for saved activations
-    :param layer_name_func : callable:None      (optional) function to rename 
-                                                layers when writing the files
-    :param output_dir : str|Path|None   (optional) path to save output tokens
-                                        and description
+    :param concat_activations : bool    whether to concatenate the input 
+                                        and generation activations in 
+                                        one tensor. Default is True
+    :param save_to_disc : bool      whether to save the activation 
+                                    tensors. Default is True
+    :param save_path : str|None     (optional) path to save activation 
+                                    tensors 
+    :param input_name : str|None    (optional) an identifier for the 
+                                    input queries/strings for use when 
+                                    constructing the filenames for saved 
+                                    activations
+    :param layer_name_func : callable:None      (optional) function to 
+                                                rename layers when 
+                                                writing the files
+    :param output_dir : str|Path|None   (optional) path to save output 
+                                        tokens and description
 
 
     :return: dict from model.generate 
@@ -725,6 +747,7 @@ def inference_with_activations(input:dict, layers:list[str], model,
     # check if saving 
     if save_to_disc:
         if save_dir is None:
+            # WISHLIST format like other errors
             raise ValueError(textwrap.fill(textwrap.dedent("""save_path must be 
                                         specified if save_to_disc is True""")))
         else:
@@ -739,7 +762,6 @@ def inference_with_activations(input:dict, layers:list[str], model,
                 print(f"Creating directory {output_dir}")
                 os.makedirs(output_dir, exist_ok=True)
             
-
     model.eval()
 
     saved_activations = dict()

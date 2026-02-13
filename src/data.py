@@ -83,14 +83,35 @@ def group_examples(examples, block_size = 128):
 #            Processing for Yahoo Dataset        #
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-def concat_yahoo(example):
+# WISHLIST concatenation options for other datasets
+def concat_yahoo(example, concat_method="all", field_name="example"):
     """
     Concatenates the question title, content, and best answer into a 
-    single string.
-    """
-    return {"example": example['question_title'] + " " + 
-            example['question_content'] + " " + example['best_answer']}
+    single string. Meant to be used as a mapping function for the Yahoo 
+    Answers Dataset. When it is, this stores the concatenated string in
+    a new field (default: "example") in the dataset.
 
+    :param example: a single example from the Yahoo Answers Dataset
+    :param concat_method: method for concatenation (default: "all")
+                          "all": combine title, content, best answer
+                          "question": combine only title and question
+    :param field_name: name of the new field to store the concatenated string
+                       (default: "example")
+    
+    """
+    if concat_method == "question":
+        return {field_name: example['question_title'] + " " \
+                + example['question_content']}
+    elif concat_method == "all":
+        return {field_name: example['question_title'] + " " + 
+                example['question_content'] + " " + example['best_answer']}
+    else:
+        message = f"""
+        Invalid concat_method: {concat_method}. 
+        Must be either "all" or "question".
+        """
+        raise ValueError(display_message(message))
+    
 
 def topic_split_yahoo(*yahoo_datasets, topics="all"):
     """
@@ -106,7 +127,7 @@ def topic_split_yahoo(*yahoo_datasets, topics="all"):
                          are topics and values are datasets.
     """
 
-    out = []
+    # out = []
 
     for yahoo_dataset in yahoo_datasets:
         topic_datasets = {}
@@ -123,14 +144,14 @@ def topic_split_yahoo(*yahoo_datasets, topics="all"):
         for topic in topics:
             topic_datasets[topic] = yahoo_dataset.filter(lambda e: e['topic'] == topic)
         
-        out.append(topic_datasets)
+        # out.append(topic_datasets)
     
-    return tuple(out)
+    return topic_datasets
 
 
-                #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-                #        Joys of Baking: Dataset Recipes         #
-#~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~#
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+        #        Joys of Baking: Dataset Recipes         #
+#~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~#
 
 def create_hull_grid(n:int, incs:int=1):
     # WISHLIST: create this function
@@ -247,9 +268,65 @@ def sample_from_yahoo_recipe(recipe, n:int, split="test"):
 
     # get the split yahoo dataset
     yahoo_set = datasets.load_dataset("yahoo_answers_topics", split=split)
-    yahoo_split = topic_split_yahoo(yahoo_set, topics="all")[0]
+    yahoo_split = topic_split_yahoo(yahoo_set, topics="all")
     
     # get the sampled data
     sampled = sample_from_recipe(recipe, n, *yahoo_split.values())
 
     return sampled
+
+
+def sample_datasets_uniform(n:int, seed:int=0, *dataset_list):
+    """
+    Samples n instances uniformly from the given datasets.
+
+    :param n: number of samples in the resulting dataset
+    :param dataset_list: datasets to sample from
+    :param seed: random seed for reproducibility
+
+    :return: sampled_dataset: datasets.arrow_dataset.Dataset
+    """
+
+    num_datasets = len(dataset_list)
+    uniform_recipe = [1/num_datasets] * num_datasets
+
+    return sample_from_recipe(uniform_recipe, n, seed, *dataset_list)
+
+
+                #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+                #              Adding Context to Data            #
+#~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~#
+
+def get_context_by_line(filename:str, line:int):
+    """
+    Reads in context lines from a file
+
+    :param filename: path to the file containing the context lines
+    :return lines: list of context lines
+    """
+    with open(filename) as file:
+        lines = [line.rstrip() for line in file]
+
+    return lines[int]
+
+
+
+
+def add_context(example, field="example", context:str=None):
+    """
+    Adds context to the example by prepending it to the specified field. 
+    Meant to be used as a mapping function for a huggingface Dataset.
+
+    :param example: a single example from the dataset getting mapped
+    :param field: name of the field to which the context will be added (default: "example")
+    :param context_path: path to the file containing the context string (default: None)
+                         If None, no context will be added.
+    """
+    if context is not None:
+        # WISHLIST better validation
+        assert isinstance(context, str), "Context must be a string."
+        return {field: context + " " + example[field]}
+    else:
+        return {field: example[field]}
+    
+

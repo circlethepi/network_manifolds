@@ -391,7 +391,7 @@ def compute_covariance(mat, rank:Optional[Union[float, int]]=float("inf"),
     Compute the covariance of a matrix X 
     X has shape (M, N) ; cov given by (1/M)X^T X has shape (N, N)
 
-    :param mat:     the matrix to compute covariance of
+    :param mat:     the matrix
     :param rank:float|int|None      optional bound on the rank of the matrix
                                     default: float(inf). If set to None, the 
                                     default value is used instead
