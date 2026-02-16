@@ -9,7 +9,7 @@ import os
 import textwrap
 import json
 import time
-from accelerator import Accelerator
+from accelerate import Accelerator
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
