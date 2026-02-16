@@ -411,8 +411,10 @@ class LoraAnalysis:
 
 
     def inference(self, inputs:dict, n_replicates:int=1, 
-                  decode_outputs:bool=True, states:bool=False, 
-                  attention:bool=False, max_new_tokens:int=512,
+                  decode_outputs:bool=True, keep_query_on_decode:bool=False,
+                  states:bool=False, attention:bool=False, 
+                  
+                  max_new_tokens:int=512,
                   generate_kwargs:Optional[dict]=None,
                   decode_kwargs:Optional[dict]=None):
         """
@@ -437,8 +439,12 @@ class LoraAnalysis:
                                     return_dict_in_generate=False,
                                     output_hidden_states=states,
                                     output_attentions=attention,
-                                    **generate_kwargs)
+                                    **generate_kwargs) 
+            # ( len(inputs) x n_replicates, input max_length + max_new_tokens )
+            
             if decode_outputs:
+                outputs = outputs if keep_query_on_decode else \
+                            outputs[:, -max_new_tokens:]
                 outputs = self.tokenizer.batch_decode(outputs, 
                                                       skip_special_tokens=True,
                                                       **decode_kwargs)

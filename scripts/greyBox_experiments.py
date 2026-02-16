@@ -223,27 +223,52 @@ def do_code(args):
                                   decode_outputs=args.decode_output)
         if args.embed_output: # WISHLIST additional parameters
             outputs = analysis.embed_strings(outputs)
+            # ( n_query x n_replicates, embed_dim ) <- 768 for Nomic embed 
 
         to_log = f'{time_elapsed_str(start_time)}Ran inference on \
             {args.n_query} queries with {args.n_replicate} replicates'
+        to_log += f" and sent to embedding dim {outputs.shape[1]}" if \
+            args.embed_output else ""
         print_and_write(display_message(to_log), logfile)
 
         # save output sequences as safetensors
         # outputs = outputs["sequences"] # we ONLY want the sequences here
             # not necessary because this is outputting a tensor!
             # TODO adjust for various formats of outputs? might need to be in model_analysis
-        filename = f"{args.id}_r{args.n_replicate}_q{args.n_query}_seed{args.data_seed}.safetensors" # file name and filepath for saving
-        filepath = os.path.join(GLOBAL_PROJECT_DIR, savedir, filename)
+        outpathname = "embeds" if args.embed_output else "outputs"
+        outdir = os.path.join(GLOBAL_PROJECT_DIR, model.cache_file_path, 
+                                outpathname)
+        filename = f"{args.id}_r{args.n_replicate}_q{args.n_query}_seed{args.data_seed}"
+        
+        if args.decode_output and (not args.embed_output):
+            filename += ".pkl"
+            
+            def save_outputs(outputs, filepath):
+                outputs = {"outputs_strings": outputs}
+                with open(filepath, "wb") as file:
+                    pickle.dump(outputs, file)
+                return
+        else:
+            filename += ".safetensors"
+            keyname = "outputs_" + ("tokenized" if not args.decode_output else \
+                                    "embedded")
 
-        to_save = {"outputs": outputs}
-        save_file(to_save, filepath)
+            def save_outputs(outputs, filepath):
+                to_save = {keyname: outputs}
+                save_file(to_save, filepath)
+                return
+                      
+        filepath = os.path.join(GLOBAL_PROJECT_DIR, outdir, filename)
+        save_outputs(outputs, filepath)
 
         to_log = f'{time_elapsed_str(start_time)}Saved outputs to {filepath}'
         print_and_write(display_message(to_log), logfile)
     
+
     ### MDS Analysis ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     if args.do_MDS:
         pass # TODO implement MDS analysis
+
 
     close_files(logfile)
 
