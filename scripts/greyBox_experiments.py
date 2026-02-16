@@ -91,13 +91,20 @@ def build_parser():
     parser.add_argument("--n_replicate", type=int, default=10, 
                         help="number of replicates for each query \
                             (default: 10)")
-    # TODO add sampling recipe parameter(s)
+    # WISHLIST add sampling recipe parameter(s)
 
     ### ### TOKENIZATION / INPUT FORMAT
     parser.add_argument("--max_length", type=int, default=512,
                         help="maximum sequence length for tokenization \
                             (default: 512)")
     # parser.add_argument("--")
+
+    ### ### EMBEDDING / OUTPUT FORMAT
+    parser.add_argument("--decode_output", action="store_true", default=False,
+                        help="whether to decode outputs to string")
+    parser.add_argument("--embed_output", action="store_true", default=False,
+                        help="whether to embed inference ouputs")
+    
 
     ### MDS 
     ### ### Output files to access
@@ -116,29 +123,48 @@ def build_parser():
     return parser
     
 
-
 def get_args(*args_to_parse):
     """Get the arguments from the command line"""
     parser = build_parser(*args_to_parse)
     args = parser.parse_args()
     return args
 
+
 def main():
     args = get_args()
     do_code(args)
+
+
+def validate_args(args, logfile):
+    # checking specific dependencies
+    to_log = f"\nValidating arguments for {args.id}..."
+    print_and_write(display_message(to_log), logfile)
+
+    # decode and embed
+    message = """To embed outputs, they must first be decoded, but flag 
+                --decode-output was not included. Forcing decode-output to true
+                """
+    if args.embed_outputs and not args.decode_output:
+        print_and_write(display_message(message))
+        args.decode_output = True
+
+    return args
 
 
 def do_code(args):
     ### Logging Setup
     start_time = time.time()
     logfilename = args.id + "___" + args.logfile
-    savedir = args.dir # WISHLIST add validation for savedir (utils file checking probably)
+    savedir = args.dir # WISHLIST validation for savedir (utils file checking probably)
     logfile = make_logfile(os.path.join(GLOBAL_PROJECT_DIR, savedir, 
                                         logfilename))
+    # WISHLIST outsource pipeline logging (probably utils)
     save_config(os.path.join(GLOBAL_PROJECT_DIR, savedir, f"config_{args.id}.json"), 
                 vars(args))
     to_log = f'{time_elapsed_str(start_time)}Beginning experiment {args.id}'
     print_and_write(display_message(to_log), logfile)
+
+    args = validate_args(args, logfile)
 
     ### Inference ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     if args.do_inference:
@@ -156,11 +182,11 @@ def do_code(args):
         ### Load and process the dataset from HuggingFace
         dataset = datasets.load_dataset(args.dataset, split=args.dataset_split)
         # sampling 
-        # TODO add sampling recipe options here
+        # WISHLIST add sampling recipe options here
         dataset = data.sample_datasets_uniform(args.n_query, args.data_seed, 
                                             dataset)
-        to_log = f'{time_elapsed_str(start_time)}Loaded dataset {args.dataset} \
-            split {args.dataset_split} and sampled {args.n_query} examples'
+        to_log = f'{time_elapsed_str(start_time)}Loaded dataset {args.dataset}\
+             split {args.dataset_split} and sampled {args.n_query} examples'
         print_and_write(display_message(to_log), logfile)
 
         # process into format we want
@@ -177,30 +203,35 @@ def do_code(args):
             dataset = dataset.map(lambda x: data.add_context(x, context=context))
 
         # generate inputs
-        # TODO add options for this
+        # WISHLIST add options for tokenizing
         inputs = model.tokenizer(dataset["example"],
                                 padding="max_length", # pad to max length 
                                 truncation=True, # truncate to max length 
                                 return_tensors="pt", # return PyTorch tensors
                                 max_length=args.max_length,
-                                ) # TODO option for max input length
+                                ) # WISHLIST option for max input length
         
         # WISHLIST additional information here
-        to_log = f'{time_elapsed_str(start_time)}Processed and tokenized dataset'
+        to_log = f'{time_elapsed_str(start_time)}Processed and tokenized \
+                  dataset'
         print_and_write(to_log, logfile)
 
         ### Run inference (no activations right now) and save outputs
         # TODO add options for collecting activations
-        # TODO turn this process into another method somewhere else
-        outputs = model.inference(inputs, n_replicates=args.n_replicate,)
+        # TODO turn this process into another method somewhere else?
+        outputs = model.inference(inputs, n_replicates=args.n_replicate, 
+                                  decode_outputs=args.decode_output)
+        if args.embed_output: # WISHLIST additional parameters
+            outputs = analysis.embed_strings(outputs)
 
-        to_log = f'{time_elapsed_str(start_time)}Ran inference on {args.n_query} \
-            query with {args.n_replicate} replicates'
+        to_log = f'{time_elapsed_str(start_time)}Ran inference on \
+            {args.n_query} queries with {args.n_replicate} replicates'
         print_and_write(display_message(to_log), logfile)
 
         # save output sequences as safetensors
         # outputs = outputs["sequences"] # we ONLY want the sequences here
             # not necessary because this is outputting a tensor!
+            # TODO adjust for various formats of outputs? might need to be in model_analysis
         filename = f"{args.id}_r{args.n_replicate}_q{args.n_query}_seed{args.data_seed}.safetensors" # file name and filepath for saving
         filepath = os.path.join(GLOBAL_PROJECT_DIR, savedir, filename)
 

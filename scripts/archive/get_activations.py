@@ -49,7 +49,7 @@ input_strings = [
 inputs = tuned.tokenizer(input_strings, 
                          return_tensors="pt",
                          padding=True)
-# TODO: use src.data group_examples to group the inputs
+# TODO use src.data group_examples to group the inputs
 # future will not need padding
 
 # do inference 
@@ -60,7 +60,7 @@ layer_list = [
     f"model.model.layers[0].self_attn.{p}_proj" for p in "q" 
     # this is the output of the fine-tuning layer. I think
 ]
-# TODO: src.data for query recipes
+# TODO src.data for query recipes
 
 # do inference with activations
 outputs = tuned.get_activations(inputs, layer_list,

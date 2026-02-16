@@ -3,9 +3,9 @@
 #                          Merrick Ohata 2025, JHU AMS         
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 """
-  description of the file here
+Structure to access HuggingFace models, perform inference, and store 
+relevant values for inducing various DKPS representations. 
 """
-
 
 import torch
 import numpy as np
@@ -19,6 +19,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftConfig, PeftModel
 from safetensors import safe_open
 from safetensors.torch import save_file, load_file
+from sentence_transformers import SentenceTransformer
 
 from src.utils import check_if_null, get_device, is_int_or_int_string
 import textwrap
@@ -80,7 +81,6 @@ def query_cache(savename:str, cache_dict:dict, compute:callable, recompute=False
 
 
 class LoraAnalysis:
-
     """
     Class to wrap a fine-tuned model for analysis
     """
@@ -114,7 +114,7 @@ class LoraAnalysis:
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
         if build_model:
-            self.model = self.get_lora_model().to(self.device)
+            self.model = self.get_model().to(self.device)
         
         # set default weight naming function 
         self.layer_name_function = get_layer_name_function(base_model_path)
@@ -155,6 +155,7 @@ class LoraAnalysis:
                 recompute=False, save_to_disc=True, save_to_cache=True,
                 device=None):
         """ Checks for a computation to disc and/or cache """
+        # FIXME this doesn't work currently
 
         device = check_if_null(device, self.device)
 
@@ -174,9 +175,9 @@ class LoraAnalysis:
 
 
 
-    def get_lora_model(self):
+    def get_model(self):
         """
-        Loads the LoRA model from the specified path.
+        Loads the LoRA model from the specified path. Usually used on build
 
         :return model : PeftModel
         """
@@ -409,15 +410,19 @@ class LoraAnalysis:
                 
 
 
-    def inference(self, inputs:dict, n_replicates:int=1,
-                  states:bool=False, attention:bool=False,
-                  max_new_tokens:int=512, ):
+    def inference(self, inputs:dict, n_replicates:int=1, 
+                  decode_outputs:bool=True, states:bool=False, 
+                  attention:bool=False, max_new_tokens:int=512,
+                  generate_kwargs:Optional[dict]=None,
+                  decode_kwargs:Optional[dict]=None):
         """
         Do inference (does not collect activations). Inputs should be
         tokenized already.
 
         TODO add disc saving functionality
         TODO add support for max_length option
+        TODO add documentation for this function
+        WISHLIST collapse into inference_with_activations?
         """
         model = self.model
 
@@ -431,7 +436,12 @@ class LoraAnalysis:
                                     max_new_tokens=max_new_tokens,
                                     return_dict_in_generate=False,
                                     output_hidden_states=states,
-                                    output_attentions=attention)
+                                    output_attentions=attention,
+                                    **generate_kwargs)
+            if decode_outputs:
+                outputs = self.tokenizer.batch_decode(outputs, 
+                                                      skip_special_tokens=True,
+                                                      **decode_kwargs)
 
         return outputs
     
@@ -541,6 +551,7 @@ def default_elnf(k:str):
     default weight name function. Minimal changes; only removes some strings
     that might appear in a layer name 
     """
+    return
 
 
 layer_name_func_dict = {
@@ -656,8 +667,6 @@ def make_cache_dir_name(base_model_path:str, peft_path:Optional[str]=None,
     return pathname
 
 
-
-
 def get_nested_attr(obj:object, path:str):
     """accesses an attribute from a path that is a string. Helper for accessing
     attributes from namestrings iteratively.
@@ -685,7 +694,6 @@ def get_nested_attr(obj:object, path:str):
             # Otherwise, use getattr to access the attribute
             obj = getattr(obj, part)
     return obj
-
 
 
 # getting activations
@@ -989,7 +997,6 @@ def save_activations_to_disc(activations:dict, save_dir:str,
     return
 
 
-
 def move_output_tensors(output_dict:dict, device:torch.device):
 # TODO add description
     """moves output tensors from a model to a different device
@@ -1056,6 +1063,31 @@ def move_to_device(x, device:Union[str, torch.device]):
         return x.to(device)
 
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                        Outputs of Inference Processing            
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+DEFAULT_EMBED = "nomic-ai/nomic-embed-text-v2-moe"
+def embed_strings(strings:list, embed_model:str=DEFAULT_EMBED, 
+                  prompt_name:str="passage", truncate:Optional[int]=None):
+    """
+    embeds strings using sentence_transformers
+    
+    :param strings: list of strings to embed
+    :type strings: list
+    :param embed_model: the model to use for embedding
+    :type embed_model: str
+    :param prompt_name: either "query" or "passage" if using Nomic. 
+                        Informs the embedding
+    :type prompt_name: str
+    :param truncate: truncate embedding to the given dimension. If None, 
+                     does not truncate (default: None)
+    :type truncate: Union[bool, int]
+    """
+    embedder = SentenceTransformer(embed_model, trust_remote_code=True,
+                                   truncate_dim=truncate)
+    embeddings = embedder(strings, prompt_name=prompt_name)
+
+    return embeddings # ( len(strings), min{768, truncate} )
 
 
 

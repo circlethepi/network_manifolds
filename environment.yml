@@ -162,11 +162,13 @@ dependencies:
   - zstd=1.5.6=hfb09047_0
   - pip:
       - accelerate==1.6.0
+      - accelerator==2025.11.11
       - aiohappyeyeballs==2.4.6
       - aiohttp==3.11.13
       - aiosignal==1.3.2
       - annotated-types==0.7.0
       - async-timeout==5.0.1
+      - bottle==0.13.4
       - click==8.1.8
       - colorama==0.4.6
       - datasets==3.5.0
@@ -196,6 +198,7 @@ dependencies:
       - rich==14.0.0
       - sacrebleu==2.5.1
       - safetensors==0.5.2
+      - sentence-transformers==5.2.2
       - sentry-sdk==2.22.0
       - setproctitle==1.3.4
       - smmap==5.0.2
@@ -206,6 +209,7 @@ dependencies:
       - transformers==4.50.3
       - trl==0.17.0
       - tzdata==2025.1
+      - waitress==3.0.2
       - wandb==0.19.6
       - xxhash==3.5.0
       - yarl==1.18.3

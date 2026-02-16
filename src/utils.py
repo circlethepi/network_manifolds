@@ -9,6 +9,7 @@ import os
 import textwrap
 import json
 import time
+from accelerator import Accelerator
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -31,9 +32,13 @@ def set_seed(seed):
 
     return
 
-def get_device():
-    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if \
-                          torch.backends.mps.is_available() else "cpu")
+def get_device(hug:bool=True):
+    """Get the GPU device. hug=true if using for huggingface purposes"""
+    if hug:
+        device = Accelerator.device()
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "mps" \
+                              if torch.backends.mps.is_available() else "cpu")
     return device
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
