@@ -101,6 +101,10 @@ def build_parser():
                             (default: 512)")
     # parser.add_argument("--")
 
+    ### ### INFERENCE METHOD
+    parser.add_argument('--pipe_inference', action='store_true', default=False,
+                        help="Whether to use pipeline for inference")
+
     ### ### EMBEDDING / OUTPUT FORMAT
     parser.add_argument("--decode_output", action="store_true", default=False,
                         help="whether to decode outputs to string")
@@ -115,7 +119,7 @@ def build_parser():
                             inference step (relative to project dir)")
 
     ### RESULTS
-    parser.add_argument("--dir", type=str, default="results",
+    parser.add_argument("--dir", type=str, default="results/00_logs",
                         help="destination directory for results {relative to \
                             the project dir} (default: results)")
 
@@ -143,11 +147,18 @@ def validate_args(args, logfile):
     print_and_write(display_message(to_log), logfile)
 
     # decode and embed
-    message = """To embed outputs, they must first be decoded, but flag 
-                --decode-output was not included. Forcing decode-output to true
-                """
+
     if args.embed_output and not args.decode_output:
-        print_and_write(display_message(message))
+        msg = """To embed outputs, they must first be decoded, but flag 
+              --decode-output was not included. Forcing decode-output to true
+              """
+        print_and_write(display_message(msg))
+        args.decode_output = True
+    
+    if args.pipe_inference and not args.decode_output:
+        msg = """Pipe inference automatically decodes output but flag 
+                --decode-output was not included. Forcing decode_output=True"""
+        print_and_write(display_message(msg))
         args.decode_output = True
 
     return args
@@ -161,6 +172,9 @@ def do_code(args):
     logfile = make_logfile(os.path.join(GLOBAL_PROJECT_DIR, savedir, 
                                         logfilename))
     # WISHLIST outsource pipeline logging (probably utils)
+    # WISHLIST better config fitting so that it can be used to find where files were saved
+        # (just means generating result savefile names earlier, 
+        # updating the log name, etc)
     save_config(os.path.join(GLOBAL_PROJECT_DIR, savedir, f"config_{args.id}.json"), 
                 vars(args))
     to_log = f"""{time_elapsed_str(start_time)}Beginning experiment 
@@ -184,7 +198,7 @@ def do_code(args):
 
         ### Load and process the dataset from HuggingFace
         dataset = datasets.load_dataset(args.dataset, split=args.dataset_split)
-        nbatch = int(args.n_query // args.batch)
+        # nbatch = int(args.n_query // args.batch)
         # sampling 
         # WISHLIST add sampling recipe options here
         dataset = data.sample_datasets_uniform(args.n_query, args.data_seed, 
@@ -212,33 +226,61 @@ def do_code(args):
 
         # generate inputs
         # WISHLIST add options for tokenizing
-        inputs = model.tokenizer(dataset["example"],
-                                padding="max_length", # pad to max length 
-                                truncation=True, # truncate to max length 
-                                return_tensors="pt", # return PyTorch tensors
-                                max_length=args.max_length,
-                                ) # WISHLIST option for max input length
-        
+        if not args.pipe_inference:
+            inputs = model.tokenizer(dataset["example"],
+                                    padding="max_length", # pad to max length 
+                                    truncation=True, # truncate to max length 
+                                    return_tensors="pt", # return PyTorch tensors
+                                    max_length=args.max_length,
+                                    ) # WISHLIST option for max input length
+        else:
+            inputs = dataset["example"] # pipe takes untokenized
+        input_keys = dataset["id"]
+
         # WISHLIST additional information here
-        to_log = f"""{time_elapsed_str(start_time)}Processed and tokenized
-                  dataset"""
-        print_and_write(to_log, logfile)
+        to_log = f"""{time_elapsed_str(start_time)}Processed and tokenized 
+                 dataset"""
+        print_and_write(display_message(to_log), logfile)
 
         ### Run inference (no activations right now) and save outputs
-        # TODO add options for collecting activations
-        # TODO turn this process into another method somewhere else?
-        outputs = model.inference(inputs, n_replicates=args.n_replicate, 
-                                  decode_outputs=args.decode_output)
-
+        # WISHLIST add options for collecting activations
+        # WISHLIST turn this process into another method somewhere else?
+        if args.pipe_inference:
+            pipe = model.get_pipe()
+            def do_inference(ex):
+                out = pipe(ex, 
+                           num_return_sequences=args.n_replicate,
+                           max_new_tokens=args.max_length,
+                           return_full_text=False) # WISHLIST settings
+                out = model.postprocess_pipe(out, embed=args.embed_output)
+                return out
+        else:
+            def do_inference(ex):
+                out = model.inference(ex, n_replicates=args.n_replicate, 
+                                    decode_outputs=args.decode_output,
+                                    max_new_tokens=args.max_length)
+                if args.embed_output: # WISHLIST additional parameters
+                    out = analysis.embed_strings(out) 
+                return out
+        
+        to_save = {} # id -> all replicates 
+        descstr = f"Inference with {args.n_replicate} replicates"
+        for i, ex in tqdm(enumerate(inputs), desc=descstr):
+            outputs = do_inference(ex)
+            to_save[f"id_{input_keys[i]}"] = outputs
+                    # if decoded but not embedded: list of strings
+                    # if decoded and embedded: tensor (n_replicate, embed_dim)
+                    # if not decoded: tensor of tokens (n_replicate, 2* max_length)
+                
         # PIPELINE
         # PIPELINE DOESNT WORK HERE YET
-        # outputs = model.inference_pipe(inputs, n_replicates=args.n_replicate)
-        # print(outputs[0])
-        # outputs = model.postprocess_pipe(outputs, embed=args.embed_output)
+        # if args.pipe_inference:
+        #     outputs = model.inference_pipe(inputs, n_replicates=args.n_replicate)
+        #     outputs = model.postprocess_pipe(outputs, embed=args.embed_output)
 
         # print(outputs)
-        if args.embed_output: # WISHLIST additional parameters
-            outputs = analysis.embed_strings(outputs)
+        # if args.embed_output: # WISHLIST additional parameters
+        #     outputs = analysis.embed_strings(outputs)
             # ( n_query x n_replicates, embed_dim ) <- 768 for Nomic embed 
 
         to_log = f"""{time_elapsed_str(start_time)}Ran inference on 
@@ -257,21 +299,16 @@ def do_code(args):
         filename = f"{args.id}_r{args.n_replicate}_q{args.n_query}_seed{args.data_seed}"
         
         if args.decode_output and (not args.embed_output):
-            filename += ".pkl"
-            
-            def save_outputs(outputs, filepath):
-                outputs = {"outputs_strings": outputs}
+            filename += "_strings.pkl"
+            def save_outputs(outs, filepath):
                 with open(filepath, "wb") as file:
-                    pickle.dump(outputs, file)
+                    pickle.dump(outs, file)
                 return
         else:
+            filename += "_tokens" if not args.embed_output else ""
             filename += ".safetensors"
-            keyname = "outputs_" + ("tokenized" if not args.decode_output else \
-                                    "embedded")
-
-            def save_outputs(outputs, filepath):
-                to_save = {keyname: outputs}
-                save_file(to_save, filepath)
+            def save_outputs(outs, filepath):
+                save_file(outs, filepath)
                 return
                       
         filepath = os.path.join(GLOBAL_PROJECT_DIR, outdir)
@@ -281,7 +318,8 @@ def do_code(args):
             os.makedirs(filepath, exist_ok=True)
             print_and_write(display_message(to_log), logfile)
         filepath = os.path.join(filepath, filename)
-        save_outputs(outputs, filepath)
+
+        save_outputs(to_save, filepath)
 
         to_log = f"""{time_elapsed_str(start_time)}Saved outputs to 
                 {filepath}"""

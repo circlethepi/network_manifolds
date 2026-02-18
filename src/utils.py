@@ -9,6 +9,7 @@ import os
 import textwrap
 import json
 import time
+from datetime import datetime
 import re
 from accelerate import Accelerator
 
@@ -66,13 +67,21 @@ def print_and_write(message, *files):
             file.write(message+'\n')
     return
 
+def paw_form(msg, start_time, sep:bool=False, *files):
+    """
+    print and write with additional formatting :)
+    """
+    
+    
+    
+
+
 def close_files(*files):
     """closes files"""
     for file in files:
         if file is not None:
             file.close()
     return
-
 
 def time_elapsed_str(start_time):
     """returns the time elapsed since start_time in seconds"""
@@ -81,7 +90,13 @@ def time_elapsed_str(start_time):
     minutes = int((elapsed % 3600) // 60)
     seconds = int(elapsed % 60)
     fraction = elapsed - int(elapsed)
-    return f"[{hours:02d}:{minutes:02d}:{seconds:02d}.{int(fraction * 100):02d}]\t"
+    
+    now = datetime.now().astimezone()
+    local_time = now.strftime("%H:%M:%S %Z")
+    
+    elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}.{int(fraction * 100):02d}"
+    
+    return f"[{local_time} | +{elapsed_str}]\t"
 
 LOG_SEPARATOR = "\n" + "~"*80 + "\n"
 
@@ -148,9 +163,10 @@ def is_int_or_int_string(x):
         return True
     return False
 
-def display_message(msg:str):
+def display_message(msg:str, subin:str="", width:int=72, **kwargs):
     # return textwrap.fill(textwrap.dedent(msg))
-    return textwrap.fill(' '.join(msg.split()))
+    return textwrap.fill(' '.join(msg.split()), width=width, 
+                         subsequent_indent=subin, **kwargs)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                              (Basic) Mail Alerts          

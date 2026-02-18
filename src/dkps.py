@@ -400,4 +400,40 @@ def coord_variance(coords:np.ndarray):
     directions = np.array([vecs[:, k] for k in (0, 1)])
 
     return mean, variance, directions
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#                    Generating DKPS from tensor files
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
+ 
+def find_files(exp_name:str,
+               base_name:str,
+               seed:int=0,
+               peft_name:Optional[str]=None,
+               custom_name:Optional[str]=None,
+               result_type:str="embeds",
+               queries:Optional[int]=None,
+               replicates:Optional[int]=None,
+               decoded:bool=True):
+    """
+    Finds cached inference files according to the search criteria. 
+    Returns paths as a list. 
+
+    param relationships to experiment script:
+
+    :param exp_name: str    name of the experiment
+    :param base_name: str   --base_model
+    :param seed: int        --seed
+    :param peft_name: Optional[str]     --peft_model
+    :param custom_name: Optional[str]   --model_name
+    :param result_type: Optional[str]   "embeds" or "outputs". 
+                                        Default: embeds
+    :param queries: Optional[int]       number of queries
+    :param replicates: Optional[int]    number of replicates
+    :param decoded: bool    whether the output is decoded. Only relevant
+                            if result_type="outputs"
+    """
+    # WISHLIST clean up description
     
+
+
+    return

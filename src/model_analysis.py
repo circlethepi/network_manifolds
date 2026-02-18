@@ -102,7 +102,8 @@ class LoraAnalysis:
         param optimize_for_inference : bool whether to optimize the model for inference
         """
 
-        self.device = get_device()
+        # self.device = get_device()
+        self.device = None # huggingface auto handle?
         self.base_model_path = base_model_path
         
         # if peft_local: 
@@ -115,7 +116,7 @@ class LoraAnalysis:
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
         if build_model:
-            self.model = self.get_model().to(self.device)
+            self.model = self.get_model()#.to(self.device)
         
         # set default weight naming function 
         self.layer_name_function = get_layer_name_function(base_model_path)
@@ -151,7 +152,6 @@ class LoraAnalysis:
     def to(self, device):
         self.model.to(device)
 
-
     def memoize(self, savename:Union[str, Path], compute:callable, 
                 recompute=False, save_to_disc=True, save_to_cache=True,
                 device=None):
@@ -183,9 +183,11 @@ class LoraAnalysis:
         :return model : PeftModel
         """
         devmap = {"": self.device} if self.device else "auto"
+        devmap = "auto"
         base_model = AutoModelForCausalLM.\
                         from_pretrained(self.base_model_path, 
-                                        torch_dtype="auto", device_map=devmap)
+                                        torch_dtype="auto", 
+                                        device_map=devmap)
         # if no peft / LoRA, return the base model only
         if self.peft_path is None:
             return base_model
@@ -440,7 +442,7 @@ class LoraAnalysis:
         model = self.model
 
         model.eval()
-        inputs = inputs.to(self.device)
+        # inputs = inputs.to(self.device)
         input_ids = inputs['input_ids']
         attention_mask = inputs.get('attention_mask', None)
 
@@ -489,7 +491,7 @@ class LoraAnalysis:
         :param max_new_tokens: Description
         """
         # TODO clean 
-        # BUG not working
+        # WISHLIST batched
         pipe = self.get_pipe()
         outputs = pipe(inputs, 
                        num_return_sequences=n_replicates,
@@ -511,7 +513,12 @@ class LoraAnalysis:
         """
         # get just the generated text
         # TODO handling to when replicates is 1 (type checking)
-        outputs = [r['generated_text'] for q in pipe_out for r in q]
+        outputs = []
+        for q in pipe_out:
+            if isinstance(q, list):
+                outputs.append([r['generated_text'] for r in q])
+            else:
+                outputs.append(q['generated_text'])
         
         if embed:
             outputs = embed_strings(outputs)
@@ -701,6 +708,7 @@ def make_cache_dir_name(base_model_path:str, peft_path:Optional[str]=None,
                         custom_name:Optional[str]=None):
     """
     returns the path to the analysis cache directory
+    
     :param base_model_path : str   path to the base model
     :param peft_path : str         path to the fine-tuned model
     :param custom_name : str|None  custom name to append to the cache path
@@ -769,6 +777,7 @@ def get_nested_attr(obj:object, path:str):
     return obj
 
 
+# TODO manual device handling not necessary if device_map="auto" on model build
 # getting activations
 # useful to also get the output information (expensive otherwise)
 def inference_with_activations(input:dict, layers:list[str], model,
