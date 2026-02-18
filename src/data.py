@@ -56,7 +56,6 @@ def group_examples(examples, block_size = 128):
     """pre-processing function for causal LM
     (taken from docs on HuggingFace)
     TODO add link from docs
-    
     """
 
     # concatenate all
@@ -147,6 +146,16 @@ def topic_split_yahoo(*yahoo_datasets, topics="all"):
         # out.append(topic_datasets)
     
     return topic_datasets
+
+
+def process_for_generate(example):
+    """
+    Adds additional field with lengths of inputs to remove the 
+    
+    :param example: Description
+    """
+
+    return
 
 
         #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -305,11 +314,9 @@ def get_context_by_line(filename:str, line:int):
     :return lines: list of context lines
     """
     with open(filename) as file:
-        lines = [line.rstrip() for line in file]
+        lines = [ell.rstrip() for ell in file]
 
-    return lines[int]
-
-
+    return lines[line]
 
 
 def add_context(example, field="example", context:str=None):

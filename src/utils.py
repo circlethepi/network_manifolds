@@ -9,6 +9,7 @@ import os
 import textwrap
 import json
 import time
+import re
 from accelerate import Accelerator
 
 
@@ -35,7 +36,7 @@ def set_seed(seed):
 def get_device(hug:bool=True):
     """Get the GPU device. hug=true if using for huggingface purposes"""
     if hug:
-        device = Accelerator.device()
+        device = Accelerator().device
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "mps" \
                               if torch.backends.mps.is_available() else "cpu")
@@ -148,7 +149,8 @@ def is_int_or_int_string(x):
     return False
 
 def display_message(msg:str):
-    return textwrap.fill(textwrap.dedent(msg))
+    # return textwrap.fill(textwrap.dedent(msg))
+    return textwrap.fill(' '.join(msg.split()))
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                              (Basic) Mail Alerts          

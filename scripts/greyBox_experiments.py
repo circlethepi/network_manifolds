@@ -91,6 +91,8 @@ def build_parser():
     parser.add_argument("--n_replicate", type=int, default=10, 
                         help="number of replicates for each query \
                             (default: 10)")
+    parser.add_argument('--batch', type=int, default=10,
+                        help="inference batch size for memory purposes")
     # WISHLIST add sampling recipe parameter(s)
 
     ### ### TOKENIZATION / INPUT FORMAT
@@ -137,14 +139,14 @@ def main():
 
 def validate_args(args, logfile):
     # checking specific dependencies
-    to_log = f"\nValidating arguments for {args.id}..."
+    to_log = f"""\nValidating arguments for {args.id}..."""
     print_and_write(display_message(to_log), logfile)
 
     # decode and embed
     message = """To embed outputs, they must first be decoded, but flag 
                 --decode-output was not included. Forcing decode-output to true
                 """
-    if args.embed_outputs and not args.decode_output:
+    if args.embed_output and not args.decode_output:
         print_and_write(display_message(message))
         args.decode_output = True
 
@@ -161,7 +163,8 @@ def do_code(args):
     # WISHLIST outsource pipeline logging (probably utils)
     save_config(os.path.join(GLOBAL_PROJECT_DIR, savedir, f"config_{args.id}.json"), 
                 vars(args))
-    to_log = f'{time_elapsed_str(start_time)}Beginning experiment {args.id}'
+    to_log = f"""{time_elapsed_str(start_time)}Beginning experiment 
+            {args.id}"""
     print_and_write(display_message(to_log), logfile)
 
     args = validate_args(args, logfile)
@@ -174,19 +177,21 @@ def do_code(args):
                                     custom_name=args.model_name)
         device = model.device
         
-        to_log = f'{time_elapsed_str(start_time)}Built analyzer for \
-            {args.base_model} with PEFT {args.peft_model}'
+        to_log = f"""{time_elapsed_str(start_time)}Built analyzer for
+                     {args.base_model} with PEFT {args.peft_model}"""
         print_and_write(display_message(to_log), logfile)
         
 
         ### Load and process the dataset from HuggingFace
         dataset = datasets.load_dataset(args.dataset, split=args.dataset_split)
+        nbatch = int(args.n_query // args.batch)
         # sampling 
         # WISHLIST add sampling recipe options here
         dataset = data.sample_datasets_uniform(args.n_query, args.data_seed, 
                                             dataset)
-        to_log = f'{time_elapsed_str(start_time)}Loaded dataset {args.dataset}\
-             split {args.dataset_split} and sampled {args.n_query} examples'
+        to_log = f"""{time_elapsed_str(start_time)}Loaded dataset 
+                 {args.dataset} split {args.dataset_split} and sampled 
+                 {args.n_query} examples"""
         print_and_write(display_message(to_log), logfile)
 
         # process into format we want
@@ -199,8 +204,11 @@ def do_code(args):
             number for which context to use"""
             assert args.context_line is not None, display_message(message)
             context_path = os.path.join(GLOBAL_PROJECT_DIR, args.context_file)
-            context = data.get_context(context_path, args.context_line)
+            context = data.get_context_by_line(context_path, args.context_line)
             dataset = dataset.map(lambda x: data.add_context(x, context=context))
+            to_log = f"""{time_elapsed_str(start_time)}using context 
+                     \"{context}\""""
+            print_and_write(display_message(to_log), logfile)
 
         # generate inputs
         # WISHLIST add options for tokenizing
@@ -212,8 +220,8 @@ def do_code(args):
                                 ) # WISHLIST option for max input length
         
         # WISHLIST additional information here
-        to_log = f'{time_elapsed_str(start_time)}Processed and tokenized \
-                  dataset'
+        to_log = f"""{time_elapsed_str(start_time)}Processed and tokenized
+                  dataset"""
         print_and_write(to_log, logfile)
 
         ### Run inference (no activations right now) and save outputs
@@ -221,12 +229,20 @@ def do_code(args):
         # TODO turn this process into another method somewhere else?
         outputs = model.inference(inputs, n_replicates=args.n_replicate, 
                                   decode_outputs=args.decode_output)
+
+        # PIPELINE
+        # PIPELINE DOESNT WORK HERE YET
+        # outputs = model.inference_pipe(inputs, n_replicates=args.n_replicate)
+        # print(outputs[0])
+        # outputs = model.postprocess_pipe(outputs, embed=args.embed_output)
+
+        # print(outputs)
         if args.embed_output: # WISHLIST additional parameters
             outputs = analysis.embed_strings(outputs)
             # ( n_query x n_replicates, embed_dim ) <- 768 for Nomic embed 
 
-        to_log = f'{time_elapsed_str(start_time)}Ran inference on \
-            {args.n_query} queries with {args.n_replicate} replicates'
+        to_log = f"""{time_elapsed_str(start_time)}Ran inference on 
+                {args.n_query} queries with {args.n_replicate} replicates"""
         to_log += f" and sent to embedding dim {outputs.shape[1]}" if \
             args.embed_output else ""
         print_and_write(display_message(to_log), logfile)
@@ -258,10 +274,17 @@ def do_code(args):
                 save_file(to_save, filepath)
                 return
                       
-        filepath = os.path.join(GLOBAL_PROJECT_DIR, outdir, filename)
+        filepath = os.path.join(GLOBAL_PROJECT_DIR, outdir)
+        if not os.path.exists(filepath):
+            to_log = f"""{time_elapsed_str(start_time)}Creating output 
+                    directory {filepath}"""
+            os.makedirs(filepath, exist_ok=True)
+            print_and_write(display_message(to_log), logfile)
+        filepath = os.path.join(filepath, filename)
         save_outputs(outputs, filepath)
 
-        to_log = f'{time_elapsed_str(start_time)}Saved outputs to {filepath}'
+        to_log = f"""{time_elapsed_str(start_time)}Saved outputs to 
+                {filepath}"""
         print_and_write(display_message(to_log), logfile)
     
 

@@ -15,13 +15,14 @@ import re
 from typing import Optional, Union
 from pathlib import Path
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from peft import PeftConfig, PeftModel
 from safetensors import safe_open
 from safetensors.torch import save_file, load_file
 from sentence_transformers import SentenceTransformer
 
-from src.utils import check_if_null, get_device, is_int_or_int_string
+from src.utils import check_if_null, get_device, is_int_or_int_string, \
+                      display_message
 import textwrap
 import pickle
 
@@ -181,9 +182,10 @@ class LoraAnalysis:
 
         :return model : PeftModel
         """
+        devmap = {"": self.device} if self.device else "auto"
         base_model = AutoModelForCausalLM.\
                         from_pretrained(self.base_model_path, 
-                                        torch_dtype="auto", device_map="auto")
+                                        torch_dtype="auto", device_map=devmap)
         # if no peft / LoRA, return the base model only
         if self.peft_path is None:
             return base_model
@@ -416,7 +418,8 @@ class LoraAnalysis:
                   
                   max_new_tokens:int=512,
                   generate_kwargs:Optional[dict]=None,
-                  decode_kwargs:Optional[dict]=None):
+                  decode_kwargs:Optional[dict]=None,
+                  override:bool=True):
         """
         Do inference (does not collect activations). Inputs should be
         tokenized already.
@@ -425,29 +428,93 @@ class LoraAnalysis:
         TODO add support for max_length option
         TODO add documentation for this function
         WISHLIST collapse into inference_with_activations?
+        FIXME doesn't really work?? created pipeline instead below
         """
+        message = """WARNING: this method is not fully supported! If you 
+                  wish to perform inference you should probably use
+                  `pipe_inference` instead! You can override this
+                  warning by passing `override=True`"""
+        if not override:
+            raise Exception(display_message(message))
+
         model = self.model
 
         model.eval()
+        inputs = inputs.to(self.device)
+        input_ids = inputs['input_ids']
+        attention_mask = inputs.get('attention_mask', None)
 
         with torch.no_grad():
-            outputs = model.generate(inputs=inputs['input_ids'].to(self.device),
-                                     attention_mask=inputs['attention_mask']\
-                                        .to(self.device), 
+            outputs = model.generate(inputs=input_ids,
+                                     attention_mask=attention_mask, 
                                     num_return_sequences=n_replicates,
                                     max_new_tokens=max_new_tokens,
                                     return_dict_in_generate=False,
                                     output_hidden_states=states,
                                     output_attentions=attention,
-                                    **generate_kwargs) 
+                                    ) 
             # ( len(inputs) x n_replicates, input max_length + max_new_tokens )
-            
             if decode_outputs:
-                outputs = outputs if keep_query_on_decode else \
-                            outputs[:, -max_new_tokens:]
                 outputs = self.tokenizer.batch_decode(outputs, 
-                                                      skip_special_tokens=True,
-                                                      **decode_kwargs)
+                                            skip_special_tokens=True,
+                                            clean_up_tokenization_spaces=True)
+
+        return outputs
+    
+
+    def get_pipe(self, **kwargs):
+        """
+        Create a pipeline object for the model.
+        
+        :param kwargs: pipeline kwargs
+        """
+        if check_if_null(self.peft_path, False):
+            # FIXME pipeline for peft?
+            msg = """pipeline inference not implemented for peft
+                    option here yet"""
+            raise Exception(display_message(msg))
+        else:
+            pipe = pipeline(model=self.base_model_path)
+        return pipe
+    
+
+    def inference_pipe(self, inputs:dict, n_replicates:int=1, 
+                 max_new_tokens:int=512, include_prompt:bool=False):
+        """
+        For inference without also gathering activations, it's better to 
+        use a pipeline. 
+        
+        :param inputs: Description
+        :param n_replicates: Description
+        :param max_new_tokens: Description
+        """
+        # TODO clean 
+        # BUG not working
+        pipe = self.get_pipe()
+        outputs = pipe(inputs, 
+                       num_return_sequences=n_replicates,
+                       max_new_tokens=max_new_tokens,
+                       return_full_text=include_prompt
+                       )
+        
+        return outputs
+    
+
+    def postprocess_pipe(self, pipe_out, 
+                         embed:bool=True,): # TODO add additional args
+        """
+        input format: list with len(n_query), 
+           each item in list is list(dict) with len(n_replicate)
+        output format: list( n_query x n_replicate )
+        optionally also embeds into shape 
+            ( n_query x n_replicate, embed_dim)
+        """
+        # get just the generated text
+        # TODO handling to when replicates is 1 (type checking)
+        outputs = [r['generated_text'] for q in pipe_out for r in q]
+        
+        if embed:
+            outputs = embed_strings(outputs)
 
         return outputs
     
@@ -1074,7 +1141,8 @@ def move_to_device(x, device:Union[str, torch.device]):
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 DEFAULT_EMBED = "nomic-ai/nomic-embed-text-v2-moe"
 def embed_strings(strings:list, embed_model:str=DEFAULT_EMBED, 
-                  prompt_name:str="passage", truncate:Optional[int]=None):
+                  prompt_name:str="passage", to_torch:bool=True,
+                  truncate:Optional[int]=None):
     """
     embeds strings using sentence_transformers
     
@@ -1091,7 +1159,10 @@ def embed_strings(strings:list, embed_model:str=DEFAULT_EMBED,
     """
     embedder = SentenceTransformer(embed_model, trust_remote_code=True,
                                    truncate_dim=truncate)
-    embeddings = embedder(strings, prompt_name=prompt_name)
+    embeddings = embedder.encode(strings, prompt_name=prompt_name)
+    
+    if to_torch:
+        embeddings = torch.from_numpy(embeddings)
 
     return embeddings # ( len(strings), min{768, truncate} )
 
