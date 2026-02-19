@@ -7,7 +7,7 @@ from typing import Optional, Union
 from tqdm import tqdm
 
 
-from src.utils import check_if_null, display_message
+from src.utils import check_if_null, display_message, GLOBAL_PROJECT_DIR
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -801,10 +801,14 @@ def matrix_similarity(mat1, mat2, sim_type="bw"):
         "frobenius" instead"""
         raise ValueError(display_message(message))
 
+def coord_savedir(space_name:str):
+    return os.path.join(GLOBAL_PROJECT_DIR, "results/01_spaces/space_name")
 
 def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"), 
                              aligned=False, align_dict:Optional[dict]=None, 
-                             numpy=True,
+                             to_numpy=True,
+                             save_results:bool=False,
+                             space_name:Optional[str]=None
                              ):
     """
     Computes the similarity matrix between a list of matrices according to the
@@ -822,14 +826,25 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"),
                     align_dict[i, j] -> A  s.t.  A @ matrices[j] is aligned to 
                                                     matrices[i]
     
-    :param numpy: bool      whether to return the similarity matrix as a numpy
+    :param to_numpy: bool   whether to return the similarity matrix as a numpy
                             array (this is useful if you want to pass it into 
-                            sklearn's MDS implementation). Default: True 
+                            sklearn's MDS implementation). Default: True
+    :param save_results: bool   whether to save alignment dict and similarity
+                                matrix as safetensors. Default: False
+    :param space_name: Optional[str]    name of the space for saving results.
+                                        Required if save_results=True
 
     :return sim_mat: torch.Tensor|np.array
         the similarity matrix of shape (n, n) where n is the number of matrices
         and the (i, j)th entry is the similarity between matrices i and j
     """
+    from safetensors.torch import save_file
+    import os
+    
+    if save_results and space_name is None:
+        msg = "space_name must be provided when save_results=True"
+        raise ValueError(display_message(msg))
+    
     # check and/or convert to Matrix objects
     sim_type = sim_type.lower()
     decomp = {"bw": "eigh", "frobenius": "svd"}.get(sim_type, "eigh")
@@ -847,11 +862,11 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"),
         aligned = check_if_null(align_dict, False, True)
 
     # for bures wasserstein, need to get align_dict if not aligned already
+    align_dict_computed = False
     if sim_type in ("bw", "bures wasserstein") and (not aligned):
         # get the alignment dict
         align_dict = compute_pairwise_alignments(*matrices)
-            # keys here are [i, j] -> Matrix (alignment)
-
+        align_dict_computed = True
 
     def get_align_mat(key1, key2):
         if align_dict is not None:
@@ -859,7 +874,6 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"),
         else:
             return None
         
-    
     # calculate the similarities and make upper triangular matrix
     for i in range(n):
         for j in tqdm(range(i+1, n), 
@@ -880,10 +894,40 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"),
                 sim = torch.from_numpy(sim).item()
             sim_mat[i,j] = sim
             
-    # make make symmetric
+    # make symmetric
     sim_mat += sim_mat.triu(1).T
 
-    if numpy:
+    # Save results if requested
+    if save_results:
+        save_dir = coord_savedir(space_name)
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # Save alignment dictionary if it was computed
+        if align_dict_computed and align_dict is not None:
+            align_save_dict = {}
+            for (i, j), alignment in align_dict.items():
+                # Convert alignment to tensor if needed
+                if isinstance(alignment, Matrix):
+                    align_tensor = torch.tensor(alignment.matrix, dtype=torch.float32)
+                else:
+                    align_tensor = torch.tensor(alignment, dtype=torch.float32)
+                
+                # Use simple i_j format for keys
+                key = f"{i}_{j}"
+                align_save_dict[key] = align_tensor
+            
+            align_path = os.path.join(save_dir, "alignments.safetensors")
+            save_file(align_save_dict, align_path)
+        
+        # Save similarity matrix
+        sim_save_dict = {
+            sim_type: sim_mat.float()  # Ensure float32 for safetensors
+        }
+        sim_path = os.path.join(save_dir, "similarities.safetensors")
+        save_file(sim_save_dict, sim_path)
+
+    # Convert to numpy if requested
+    if to_numpy:
         sim_mat = np.array(sim_mat)
 
     return sim_mat

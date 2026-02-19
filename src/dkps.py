@@ -7,18 +7,21 @@
   within that space
 """
 
+import warnings
 import torch
 import numpy as np
 import random
 import os
 import re
 from typing import Optional, Union
+import glob
 
 from safetensors import safe_open
 
-from src.utils import check_if_null, display_message
+from src.utils import check_if_null, display_message, GLOBAL_PROJECT_DIR
 import src.matrix as matrix
 import src.plot as plot
+import src.model_analysis as analysis
 
 from sklearn import manifold
 
@@ -405,10 +408,10 @@ def coord_variance(coords:np.ndarray):
 #                    Generating DKPS from tensor files
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
  
-def find_files(exp_name:str,
-               base_name:str,
+def find_result_files(exp_name:Union[str, list],
+               base_name:Union[str, list],
                seed:int=0,
-               peft_name:Optional[str]=None,
+               peft_name:Optional[Union[str, list]]=None,
                custom_name:Optional[str]=None,
                result_type:str="embeds",
                queries:Optional[int]=None,
@@ -418,12 +421,18 @@ def find_files(exp_name:str,
     Finds cached inference files according to the search criteria. 
     Returns paths as a list. 
 
-    param relationships to experiment script:
+    Experiment script saves results in the diretory 
+        {model_cache_dir}/ result_type 
+    with filename
+        {exp_name}_r{replicates}_q{queries}_seed{seed}
+    extension
+        .safetensors if not decoded or embeds
+        .pkl if decoded output
 
-    :param exp_name: str    name of the experiment
-    :param base_name: str   --base_model
+    :param exp_name: Union[str, list(str)]    name(s) of the experiments
+    :param base_name: Union[str, list(str)]   --base_model(s)
     :param seed: int        --seed
-    :param peft_name: Optional[str]     --peft_model
+    :param peft_name: Optional[Union[str, list(str)]]    --peft_model(s)
     :param custom_name: Optional[str]   --model_name
     :param result_type: Optional[str]   "embeds" or "outputs". 
                                         Default: embeds
@@ -432,8 +441,292 @@ def find_files(exp_name:str,
     :param decoded: bool    whether the output is decoded. Only relevant
                             if result_type="outputs"
     """
-    # WISHLIST clean up description
+    # TODO add dataset options
+    # get results dir
+    if result_type not in ("embeds", "outputs"):
+        msg = f"""`result_type` must be either 'embeds' or 'outputs' but
+                got {result_type} instead"""
+        raise ValueError(display_message(msg))
     
+    # Normalize inputs to lists
+    if isinstance(exp_name, str):
+        exp_names = [exp_name]
+    else:
+        exp_names = exp_name
+    
+    if isinstance(base_name, str):
+        base_names = [base_name]
+    else:
+        base_names = base_name
+    
+    if peft_name is None:
+        peft_names = [None]
+    elif isinstance(peft_name, str):
+        peft_names = [peft_name]
+    else:
+        peft_names = peft_name
+
+    ## seed
+    seed_pattern = f"_seed{seed}"
+    if result_type == "embeds" or not decoded:
+        extension = ".safetensors"
+    else:  # result_type == "outputs" and decoded
+        extension = ".pkl"
+    # Collect all matching files
+    all_matches = []
+
+    # Iterate over all combinations of base_name and peft_name
+    for base in base_names:
+        for peft in peft_names:
+            base_cache = analysis.make_cache_dir_name(base, peft, custom_name)
+            main_dir = os.path.join(base_cache, result_type)
+            
+            # Iterate over experiment names
+            for exp in exp_names:
+                pattern_parts = [exp]
+                ## replicates
+                if replicates is not None:
+                    pattern_parts.append(f"_r{replicates}")
+                else:
+                    pattern_parts.append("_r*")
+                ## queries
+                if queries is not None:
+                    pattern_parts.append(f"_q{queries}")
+                else:
+                    pattern_parts.append("_q*")
+                
+                pattern_parts.append(seed_pattern)
+                
+                filename_pattern = "".join(pattern_parts) + extension
+                full_pattern = os.path.join(main_dir, filename_pattern)
+                
+                # Find matching files for this exp_name
+                matching_files = glob.glob(full_pattern)
+                all_matches.extend(matching_files)
+
+    return all_matches
 
 
-    return
+def _aggregate_avg(tensor: torch.Tensor, replicates: Optional[int] = None) -> torch.Tensor:
+    """
+    Average aggregate a tensor over the first dimension.
+    
+    :param tensor: torch.Tensor of shape (r, d)
+    :param replicates: Optional[int] number of replicates to average over.
+                       If None, averages over all.
+    :return: torch.Tensor of shape (1, d)
+    """
+    if replicates is not None:
+        # Average over first `replicates` entries
+        return tensor[:replicates, :].mean(dim=0, keepdim=True)
+    else:
+        # Average over all replicates
+        return tensor.mean(dim=0, keepdim=True)
+
+
+def results_from_data_ids(filenames: list, 
+                          data_ids: list, 
+                          aggregate: Optional[str] = "avg",
+                          replicates: Optional[int] = None,
+                          key_override: str = "drop_key"):
+    """
+    Load and optionally aggregate tensors from safetensors files based on data IDs.
+    
+    :param filenames: list(str)     list of filenames to check/load
+    :param data_ids:  list(any)     list of ids from dataset to use as keys
+    :param aggregate: Optional[str] aggregation method ("avg" or None)
+    :param replicates: Optional[int] number of replicates to aggregate over
+    :param key_override: str        "strict", "drop_key", or "drop_file"
+    :return: torch.Tensor of shape (len(filenames), len(data_ids) * agg_size, d)
+             or list of tensors if stacking is not possible
+    """
+    if key_override not in ("strict", "drop_key", "drop_file"):
+        msg = f"key_override must be 'strict', 'drop_key', or \
+                'drop_file', got {key_override}"
+        raise ValueError(display_message(msg))
+    
+    if aggregate is not None and aggregate != "avg":
+        msg = f"Only 'avg' aggregation is currently supported, got \
+            {aggregate}"
+        raise ValueError(display_message(msg))
+    
+    # Step 1: Check all files are safetensors and validate keys
+    valid_files = []
+    valid_keys = set(str(k) for k in data_ids)  # Convert all keys to strings
+    files_to_drop = []
+    keys_to_drop = set()
+    missing_info = {}  # Track which keys are missing from which files
+    
+    for filepath in filenames:
+        # Check file extension
+        if not filepath.endswith('.safetensors'):
+            if key_override == "strict":
+                msg = f"File {filepath} is not a safetensors file"
+                raise ValueError(display_message(msg))
+            elif key_override == "drop_file":
+                files_to_drop.append(filepath)
+                continue
+            else:  # drop_key - doesn't make sense here, treat as drop_file
+                files_to_drop.append(filepath)
+                continue
+        
+        # Check keys exist in file
+        try:
+            with safe_open(filepath, framework="pt") as f:
+                file_keys = set(f.keys())
+                missing_keys = valid_keys - file_keys
+                
+                if missing_keys:
+                    missing_info[filepath] = missing_keys
+                    
+                    if key_override == "strict":
+                        msg = f"File {filepath} is missing keys: {missing_keys}"
+                        raise KeyError(display_message(msg))
+                    elif key_override == "drop_file":
+                        files_to_drop.append(filepath)
+                        continue
+                    elif key_override == "drop_key":
+                        keys_to_drop.update(missing_keys)
+                
+                valid_files.append(filepath)
+                
+        except Exception as e:
+            if key_override == "strict":
+                msg = f"Error reading file {filepath}: {e}"
+                raise RuntimeError(display_message(msg))
+            else:
+                files_to_drop.append(filepath)
+                continue
+    
+    # Issue warnings and update lists
+    if files_to_drop:
+        msg = f"Dropped {len(files_to_drop)} file(s): {files_to_drop}"
+        warnings.warn(display_message(msg))
+    
+    if keys_to_drop:
+        msg = f"Dropped {len(keys_to_drop)} key(s): {keys_to_drop}"
+        warnings.warn(display_message(msg))
+    
+    if not valid_files:
+        msg = "No valid files remaining after filtering"
+        raise ValueError(display_message(msg))
+    
+    if not valid_keys:
+        msg = "No valid keys remaining after filtering"
+        raise ValueError(display_message(msg))
+    
+    # Update data_ids to only include valid keys (maintain order)
+    final_data_ids = [str(k) for k in data_ids if str(k) in valid_keys]
+    
+    # Step 2: Load and aggregate tensors
+    all_results = []
+    
+    for filepath in valid_files:
+        file_tensors = []
+        
+        with safe_open(filepath, framework="pt") as f:
+            for key in final_data_ids:
+                # Load tensor for this key
+                tensor = f.get_tensor(key)  # (r, d)
+                # WISHLIST additional aggration options
+                if aggregate == "avg":
+                    tensor = _aggregate_avg(tensor, replicates)
+                # else: keep tensor as is (r, d)
+                
+                file_tensors.append(tensor)
+        
+        concatenated = torch.cat(file_tensors, dim=0) # (len(final_data_ids) * agg_size, d)
+        all_results.append(concatenated)
+    
+    try:
+        # Try to stack into single tensor: 
+        result = torch.stack(all_results, dim=0)
+            # (len(valid_files), len(final_data_ids) * agg_size, d)
+        return result
+    except RuntimeError:
+        # If shapes don't match, return as list
+        msg = "Could not stack results into single tensor, returning list"
+        warnings.warn(display_message(msg))
+        return all_results
+
+
+def induce_dkps(reps:Union[list, torch.Tensor],
+                space_name:str,
+                similarity:str="fro",
+                is_cov:bool=False,
+                get_coordinates:bool=False,
+                mds_dim:int=2,
+                mdskwargs:Optional[dict]=None):
+    """
+    Calculates similarity matrix and optionally induces DKPS coordinates.
+
+    Assumes no alignment.
+    
+    :param reps: Union[list, torch.Tensor]  list or tensor of representations
+    :param space_name: str                  name of space for saving results
+    :param similarity: str                  similarity type ("fro" or "bw")
+    :param is_cov: bool                     whether reps are covariance matrices
+    :param get_coordinates: bool            whether to compute MDS coordinates
+    :param mds_dim: int                     dimension for MDS embedding
+    :param mdskwargs: Optional[dict]        additional kwargs for compute_MDS
+    :return: coords if get_coords else sim_mat
+    """
+    from safetensors.torch import save_file
+    import torch
+    import os
+    
+    # Convert to list if tensor
+    reps = list(reps) if isinstance(reps, torch.Tensor) else reps
+    
+    # Check that all entries have the same shape
+    shapes = [r.shape if isinstance(r, torch.Tensor) else r.shape for r in \
+                                                                        reps]
+    if len(set(shapes)) > 1:
+        msg = f"All representations must have the same shape, got shapes: \
+            {shapes}"
+        raise ValueError(display_message(msg))
+    
+    # Convert to Matrix objects
+    if not is_cov:
+        # If not covariance matrices, compute them
+        reps = [matrix.Matrix(torch.tensor(m) @ torch.tensor(m).T) for m in reps]
+    else:
+        reps = [matrix.Matrix(m) for m in reps]
+    
+    # Get similarity matrix and save
+    sim_mat = matrix.matrix_similarity_matrix(
+        *reps,
+        sim_type=similarity,
+        aligned=False,
+        to_numpy=True,  # compute_MDS expects numpy array
+        save_results=True,
+        space_name=space_name
+    )
+    
+    coords = None
+    if get_coordinates:
+        # Set up MDS kwargs
+        if mdskwargs is None:
+            mdskwargs = {}
+        
+        # Ensure n_components is set
+        mdskwargs.setdefault('n_components', mds_dim)
+        
+        coords = compute_MDS(sim_mat, **mdskwargs)
+        
+        save_dir = matrix.coord_savedir(space_name)
+        os.makedirs(save_dir, exist_ok=True)
+        
+        coords_tensor = torch.tensor(coords, dtype=torch.float32)
+        coord_save_dict = {
+            f"{mds_dim}": coords_tensor
+        }
+        coord_path = os.path.join(save_dir, "coordinates.safetensors")
+        save_file(coord_save_dict, coord_path)
+    
+    if get_coordinates:
+        return coords
+    else:
+        return sim_mat
+
+

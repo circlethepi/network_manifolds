@@ -18,6 +18,7 @@ from accelerate import Accelerator
 #                             General Global Variables           
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
 GLOBAL_PROJECT_DIR = "/weka/home/mohata1/scratchcpriebe1/MO/network_manifolds/"
+GLOBAL_ANALYSIS_DIR = "/weka/home/mohata1/scratchcpriebe1/MO/network_manifolds/results/cache"
 
 
 
@@ -67,11 +68,14 @@ def print_and_write(message, *files):
             file.write(message+'\n')
     return
 
-def paw_form(msg, start_time, sep:bool=False, *files):
+def paw_form(msg, start_time, *files):
     """
     print and write with additional formatting :)
     """
-    
+    timestr = time_elapsed_str(start_time)
+    display = display_message(timestr+msg, subin=len(timestr))
+    print_and_write(display, *files)
+    return
     
     
 
@@ -98,7 +102,7 @@ def time_elapsed_str(start_time):
     
     return f"[{local_time} | +{elapsed_str}]\t"
 
-LOG_SEPARATOR = "\n" + "~"*80 + "\n"
+LOG_SEPARATOR = "\n" + "~"*72 + "\n"
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                              Value/Quantity Tracking

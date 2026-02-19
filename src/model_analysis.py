@@ -22,12 +22,9 @@ from safetensors.torch import save_file, load_file
 from sentence_transformers import SentenceTransformer
 
 from src.utils import check_if_null, get_device, is_int_or_int_string, \
-                      display_message
+                      display_message, GLOBAL_ANALYSIS_DIR
 import textwrap
 import pickle
-
-
-GLOBAL_ANALYSIS_DIR = "/weka/home/mohata1/scratchcpriebe1/MO/network_manifolds/results/cache"
 
 
 # Memory stuff
@@ -716,7 +713,7 @@ def make_cache_dir_name(base_model_path:str, peft_path:Optional[str]=None,
     :return pathname : str         path to the cache directory
 
     This function will create a path in the form of
-    {GLOBAL_ANALYSIS_DIR}/{base_model_path}/{peft_path}/{custom_name}
+    {GLOBAL_ANALYSIS_DIR}/{base_model_path}___{peft_path}/{custom_name}
     """
 
     # WISHLIST add option to add custom rules

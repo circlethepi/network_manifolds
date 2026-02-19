@@ -32,8 +32,10 @@ from transformers import AutoTokenizer
 from src.utils import *
 import src.data as data
 import src.model_analysis as analysis
+import src.dkps as dkps
+import src.matrix as matrix
 
-from safetensors.torch import save_file
+from safetensors.torch import save_file, safe_open
 
 
     ############################################                   
@@ -114,9 +116,42 @@ def build_parser():
 
     ### MDS 
     ### ### Output files to access
-    parser.add_argument("--outputs_dir", type=str, default=None,
-                        help="directory containing output files from \
-                            inference step (relative to project dir)")
+    # parser.add_argument("--outputs_dir", type=str, default=None,
+    #                     help="directory containing output files from \
+    #                         inference step (relative to project dir)")
+    ### MDS 
+    ### ### Input specification
+    parser.add_argument("--exp_ids", nargs='+', default=[])
+    parser.add_argument("--space_name", type=str, required=True,
+                        help="name for the DKPS space (for saving results)")
+    parser.add_argument("--similarity", type=str, default="fro",
+                        choices=["fro", "frobenius", "bw", "bures wasserstein"],
+                        help="similarity type for DKPS")
+
+    ### ### File search parameters 
+    # exp_name, base_model, peft_model, model_name, seed already exist
+
+    ### ### Data parameters
+    parser.add_argument("--data_ids", type=str, default=None,
+                        help="comma-separated list of data IDs or 'all' \
+                            (default: None, will infer from files)")
+    # if no specific ids then use n_replicate from the first file
+    parser.add_argument("--aggregate", type=str, default="avg",
+                        choices=["avg", "none"],
+                        help="aggregation method for replicates")
+    parser.add_argument("--key_override", type=str, default="drop_key",
+                        choices=["strict", "drop_key", "drop_file"],
+                        help="how to handle missing keys")
+
+    ### ### MDS parameters
+    parser.add_argument("--mds_dim", type=int, default=2,
+                        help="MDS embedding dimension (default: 2)")
+    parser.add_argument("--zero_index", type=int, default=None,
+                        help="index to center coordinates about")
+    parser.add_argument("--align_coords", action="store_true", default=True,
+                        help="whether to align MDS coordinates to axes")
+    parser.add_argument("--mds_seed", type=int, default=0,
+                        help="random seed for MDS reproducibility")
 
     ### RESULTS
     parser.add_argument("--dir", type=str, default="results/00_logs",
@@ -141,25 +176,47 @@ def main():
     do_code(args)
 
 
-def validate_args(args, logfile):
+def validate_args(args, start_time, logfile):
     # checking specific dependencies
     to_log = f"""\nValidating arguments for {args.id}..."""
-    print_and_write(display_message(to_log), logfile)
+    paw_form(to_log, start_time, logfile)
 
     # decode and embed
-
     if args.embed_output and not args.decode_output:
         msg = """To embed outputs, they must first be decoded, but flag 
               --decode-output was not included. Forcing decode-output to true
               """
-        print_and_write(display_message(msg))
+        paw_form(to_log, start_time, logfile)
         args.decode_output = True
     
     if args.pipe_inference and not args.decode_output:
         msg = """Pipe inference automatically decodes output but flag 
                 --decode-output was not included. Forcing decode_output=True"""
-        print_and_write(display_message(msg))
+        paw_form(to_log, start_time, logfile)
         args.decode_output = True
+
+    # MDS
+    if args.do_MDS:
+        if args.space_name is None:
+            msg = "Must provide --space_name for MDS analysis"
+            raise ValueError(display_message(msg))
+        
+        # Handle exp_ids
+        if args.exp_ids is None:
+            if args.id is None:
+                msg = "Must provide either --id or --exp_ids for MDS"
+                raise ValueError(display_message(msg))
+            args.exp_ids = [args.id]  # Use single ID as list
+        
+        to_log = f"""\nMDS will use experiment IDs: {args.exp_ids}"""
+        paw_form(to_log, start_time, logfile)
+        
+        # Parse data_ids if provided as string
+        if args.data_ids is not None and args.data_ids != "all":
+            args.data_ids = [int(x.strip()) for x in args.data_ids.split(",")]
+        
+        to_log = f"""\nMDS will use similarity: {args.similarity}"""
+        paw_form(to_log, start_time, logfile)
 
     return args
 
@@ -177,11 +234,10 @@ def do_code(args):
         # updating the log name, etc)
     save_config(os.path.join(GLOBAL_PROJECT_DIR, savedir, f"config_{args.id}.json"), 
                 vars(args))
-    to_log = f"""{time_elapsed_str(start_time)}Beginning experiment 
-            {args.id}"""
-    print_and_write(display_message(to_log), logfile)
+    to_log = f"""Beginning experiment {args.id}"""
+    paw_form(to_log, start_time, logfile)
 
-    args = validate_args(args, logfile)
+    args = validate_args(args, start_time, logfile)
 
     ### Inference ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     if args.do_inference:
@@ -191,9 +247,9 @@ def do_code(args):
                                     custom_name=args.model_name)
         device = model.device
         
-        to_log = f"""{time_elapsed_str(start_time)}Built analyzer for
-                     {args.base_model} with PEFT {args.peft_model}"""
-        print_and_write(display_message(to_log), logfile)
+        to_log = f"""Built analyzer for {args.base_model} with PEFT 
+                    {args.peft_model}"""
+        paw_form(to_log, start_time, logfile)
         
 
         ### Load and process the dataset from HuggingFace
@@ -203,10 +259,9 @@ def do_code(args):
         # WISHLIST add sampling recipe options here
         dataset = data.sample_datasets_uniform(args.n_query, args.data_seed, 
                                             dataset)
-        to_log = f"""{time_elapsed_str(start_time)}Loaded dataset 
-                 {args.dataset} split {args.dataset_split} and sampled 
-                 {args.n_query} examples"""
-        print_and_write(display_message(to_log), logfile)
+        to_log = f"""Loaded dataset {args.dataset} split {args.dataset_split} 
+                    and sampled {args.n_query} examples"""
+        paw_form(to_log, start_time, logfile)
 
         # process into format we want
         # WISHLIST concatenation options for other datasets
@@ -220,9 +275,8 @@ def do_code(args):
             context_path = os.path.join(GLOBAL_PROJECT_DIR, args.context_file)
             context = data.get_context_by_line(context_path, args.context_line)
             dataset = dataset.map(lambda x: data.add_context(x, context=context))
-            to_log = f"""{time_elapsed_str(start_time)}using context 
-                     \"{context}\""""
-            print_and_write(display_message(to_log), logfile)
+            to_log = f"""using context \"{context}\""""
+            paw_form(to_log, start_time, logfile)
 
         # generate inputs
         # WISHLIST add options for tokenizing
@@ -238,9 +292,8 @@ def do_code(args):
         input_keys = dataset["id"]
 
         # WISHLIST additional information here
-        to_log = f"""{time_elapsed_str(start_time)}Processed and tokenized 
-                 dataset"""
-        print_and_write(display_message(to_log), logfile)
+        to_log = f"""Processed and tokenized dataset"""
+        paw_form(to_log, start_time, logfile)
 
         ### Run inference (no activations right now) and save outputs
         # WISHLIST add options for collecting activations
@@ -283,11 +336,11 @@ def do_code(args):
         #     outputs = analysis.embed_strings(outputs)
             # ( n_query x n_replicates, embed_dim ) <- 768 for Nomic embed 
 
-        to_log = f"""{time_elapsed_str(start_time)}Ran inference on 
-                {args.n_query} queries with {args.n_replicate} replicates"""
+        to_log = f"""Ran inference on {args.n_query} queries with 
+                    {args.n_replicate} replicates"""
         to_log += f" and sent to embedding dim {outputs.shape[1]}" if \
             args.embed_output else ""
-        print_and_write(display_message(to_log), logfile)
+        paw_form(to_log, start_time, logfile)
 
         # save output sequences as safetensors
         # outputs = outputs["sequences"] # we ONLY want the sequences here
@@ -296,6 +349,7 @@ def do_code(args):
         outpathname = "embeds" if args.embed_output else "outputs"
         outdir = os.path.join(GLOBAL_PROJECT_DIR, model.cache_file_path, 
                                 outpathname)
+        # TODO add dataset to naming also
         filename = f"{args.id}_r{args.n_replicate}_q{args.n_query}_seed{args.data_seed}"
         
         if args.decode_output and (not args.embed_output):
@@ -313,26 +367,97 @@ def do_code(args):
                       
         filepath = os.path.join(GLOBAL_PROJECT_DIR, outdir)
         if not os.path.exists(filepath):
-            to_log = f"""{time_elapsed_str(start_time)}Creating output 
-                    directory {filepath}"""
+            to_log = f"""Creating output directory {filepath}"""
             os.makedirs(filepath, exist_ok=True)
-            print_and_write(display_message(to_log), logfile)
+            paw_form(to_log, start_time, logfile)
         filepath = os.path.join(filepath, filename)
 
         save_outputs(to_save, filepath)
 
-        to_log = f"""{time_elapsed_str(start_time)}Saved outputs to 
-                {filepath}"""
-        print_and_write(display_message(to_log), logfile)
+        to_log = f"""Saved outputs to {filepath}"""
+        paw_form(to_log, start_time, logfile)
     
+    if args.do_mds:
+        filenames = dkps.find_result_files(
+            exp_name=args.exp_ids, 
+            base_name=args.base_model,
+            seed=args.data_seed,
+            peft_name=args.peft_model,
+            custom_name=args.model_name,
+            result_type="embeds",
+            queries=args.n_query,
+            replicates=args.n_replicate,
+            decoded=False
+            ) 
+         
+        if not filenames:
+            msg = "No files found to infer data_ids from"
+            raise ValueError(display_message(msg))
+        if len(filenames) < 2:
+            msg = "There must be at least 2 matches to compute MDS"
+            raise ValueError(display_message(msg))
+        
+        to_log = f"Found {len(filenames)} files matching pattern"
+        paw_form(to_log, start_time, logfile)
 
-    ### MDS Analysis ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    if args.do_MDS:
-        pass # TODO implement MDS analysis
+        # get the data ids
+        if args.data_ids == "all" or args.data_ids is None:
+            # Get keys from first file
+            with safe_open(filenames[0], framework="pt") as f:
+                data_ids = list(f.keys())
+            # chant chcek data number in validation otherwise need to load
+            # all the strings which we dont love every time
+            data_ids = data_ids[:args.n_query]
+            to_log = f"""Inferred {len(data_ids)} data IDs from 
+                        {filenames[0]}"""
+            paw_form(to_log, start_time, logfile)
+        else: # otherwise we have them already :)
+            data_ids = args.data_ids
+        
+        # get the results
+        aggregate_str = None if args.aggregate == "none" else args.aggregate
+        
+        reps = dkps.results_from_data_ids(
+                filenames=filenames,
+                data_ids=data_ids,
+                aggregate=aggregate_str,
+                replicates=args.n_replicate,
+                key_override=args.key_override
+        )
+        
+        # do the similarity 
+        if isinstance(reps, list):
+            to_log = f"""Loaded {len(reps)} representations"""
+            paw_form(to_log, start_time, logfile)
+        else:
+            msg = f"""Need more than one matrix. Somethig went wrong!"""
+            raise Exception(display_message(msg))
+        to_log = f"""Computing {args.similarity} similarity matrix..."""
+        paw_form(to_log, start_time, logfile)  
+        
+        # mds kwargs
+        mdskwargs = {
+            'n_components': args.mds_dim,
+            'zero_index': args.zero_index,
+            'align_coords': args.align_coords,
+            'seed': args.mds_seed}
+        
+        coords = dkps.induce_dkps(
+            reps=reps,
+            space_name=args.space_name,
+            similarity=args.similarity,
+            is_cov=False,
+            get_coordinates=True,
+            mds_dim=args.mds_dim,
+            mdskwargs=mdskwargs
+        )
 
+        to_log = f"""MDS analysis complete!
+             Coordinates shape: {coords.shape}
+             Results saved to: {matrix.coord_savedir(args.space_name)}"""
+        paw_form(to_log, start_time, logfile)
 
     close_files(logfile)
-
 
 main()
 print("SUCCESS")
