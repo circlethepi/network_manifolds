@@ -5,6 +5,7 @@ import os
 import re
 from typing import Optional, Union
 from tqdm import tqdm
+from safetensors.torch import save_file
 
 
 from src.utils import check_if_null, display_message, GLOBAL_PROJECT_DIR
@@ -802,7 +803,7 @@ def matrix_similarity(mat1, mat2, sim_type="bw"):
         raise ValueError(display_message(message))
 
 def coord_savedir(space_name:str):
-    return os.path.join(GLOBAL_PROJECT_DIR, "results/01_spaces/space_name")
+    return os.path.join(GLOBAL_PROJECT_DIR, f"results/01_spaces/{space_name}")
 
 def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"), 
                              aligned=False, align_dict:Optional[dict]=None, 
@@ -838,9 +839,6 @@ def matrix_similarity_matrix(*matrices, sim_type="bw", rank=float("inf"),
         the similarity matrix of shape (n, n) where n is the number of matrices
         and the (i, j)th entry is the similarity between matrices i and j
     """
-    from safetensors.torch import save_file
-    import os
-    
     if save_results and space_name is None:
         msg = "space_name must be provided when save_results=True"
         raise ValueError(display_message(msg))

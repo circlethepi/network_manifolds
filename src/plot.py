@@ -1,5 +1,5 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                     General Plotting Functions and Settings   
+#                     General Plotting Functions   
 #                          Merrick Ohata 2025, JHU AMS         
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 """
@@ -10,10 +10,12 @@ import torch
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm # for settings
 from mpl_toolkits import axes_grid1 # for colorbar
 from matplotlib.ticker import ScalarFormatter # for (linear) tick format
 import colorsys
+
+mpl.use("Agg")
+import seaborn as sns
 
 from typing import Union, Optional
 
@@ -33,56 +35,6 @@ GLOBAL_DPI = 600
 
 DEFAULT_LABEL_PAD_X = 15
 DEFAULT_LABEL_PAD_Y = 30
-
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#                          matplotlib restyling settings
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#region
-mpl.rcdefaults()
-
-# add the font I like :-)
-weight = "normal"
-if "mnzk" in str(os.getcwd()):
-    fm.fontManager.addfont("/Users/mnzk/Library/Fonts/LibreFranklin-VariableFont_wght.ttf")
-    weight = "medium"
-
-mpl.rcParams.update({
-    "text.usetex": False,
-
-    "font.family": "sans-serif",
-    # "font.sans-serif": "Comic Sans MS", # default DejaVu Sans per documentation
-    "font.sans-serif": "Libre Franklin",
-
-
-    # Base font settings (applies to many text elements but not all)
-    "font.size": GLOBAL_FONT_SIZE,                      # default is 10
-    "font.weight": weight, 
-
-    # Overrides for all plot elements not included in base setting
-    "axes.titlesize": GLOBAL_FONT_SIZE,
-    "axes.titleweight": weight,
-
-    "axes.labelsize": GLOBAL_FONT_SIZE,
-    "axes.labelweight": weight,
-
-    "xtick.labelsize": GLOBAL_FONT_SIZE,
-    "ytick.labelsize": GLOBAL_FONT_SIZE,
-
-    "legend.fontsize": GLOBAL_FONT_SIZE,
-    "legend.title_fontsize": GLOBAL_FONT_SIZE,
-
-    "figure.titlesize": GLOBAL_FONT_SIZE,
-    "figure.titleweight": weight,
-})
-
-
-## Format Definitions / Helper
-## Linear axis formatting
-lin_formatter = ScalarFormatter(useMathText=True)
-lin_formatter.set_scientific(True)
-lin_formatter.set_powerlimits((-3, 3)) # default 
-
-
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #                           Component/Plot Formatters
@@ -137,7 +89,8 @@ def plot_labels(ax=None, title=None,
                 xticks=None, xticklabs=None, xrot=0, xlab=None, xlims=None,
                 yticks=None, yticklabs=None, yrot=0, ylab=None, ylims=None,
                 ylabpad=DEFAULT_LABEL_PAD_Y, xlabelpad=DEFAULT_LABEL_PAD_X,
-                tick_positions=["bottom", "left"]):
+                tick_positions=["bottom", "left"],
+                hide_xticks=False, hide_yticks=False):
     """Add axis and sup titles; axis ticks, axis limits"""
 
     # tick positions
@@ -152,8 +105,13 @@ def plot_labels(ax=None, title=None,
     
     # --------------------
     # x axis ticks
-    xticks, xticklabs = get_ticks_and_labs(xticks, xticklabs)
-    ax.set_xticks(ticks=xticks, labels=xticklabs, rotation=xrot)
+    if not hide_xticks:
+        if xticks is not None:  
+            xticks, xticklabs = get_ticks_and_labs(xticks, xticklabs)
+            ax.set_xticks(ticks=xticks, labels=xticklabs, rotation=xrot)
+    else:
+        ax.set_xticklabels([])
+
 
     # x axis label
     if check_if_null(xlab, False, True):
@@ -167,8 +125,12 @@ def plot_labels(ax=None, title=None,
 
     # --------------------
     # y axis ticks
-    yticks, yticklabs = get_ticks_and_labs(yticks, yticklabs)
-    ax.set_yticks(ticks=yticks, labels=yticklabs, rotation=yrot)
+    if not hide_yticks:
+        if yticks is not None:  
+            yticks, yticklabs = get_ticks_and_labs(yticks, yticklabs)
+            ax.set_yticks(ticks=yticks, labels=yticklabs, rotation=yrot)
+    else:
+        ax.set_yticklabels([])
 
     # y axis label
     if check_if_null(ylab, False, True):
@@ -1093,7 +1055,8 @@ def plot_scatter_var(coords:np.ndarray, ax=None, origin=None,
         cov = (1/c.shape[0])*centered.T @ centered    # get centered cov (2, 2)
 
         vals, vecs = np.linalg.eigh(cov)
-        vals, vecs = np.flip(vals), np.flip(vecs)
+        vals = vals[::-1]  
+        vecs = vecs[:, ::-1]  
 
         lengths = [np.sqrt(k) for k in vals[:2]]    # get SD lengths 
         directions = [vecs[:, k] for k in (0,1)]    # get SD directions

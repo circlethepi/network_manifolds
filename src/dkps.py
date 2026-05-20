@@ -17,6 +17,7 @@ from typing import Optional, Union
 import glob
 
 from safetensors import safe_open
+from safetensors.torch import save_file
 
 from src.utils import check_if_null, display_message, GLOBAL_PROJECT_DIR
 import src.matrix as matrix
@@ -416,7 +417,8 @@ def find_result_files(exp_name:Union[str, list],
                result_type:str="embeds",
                queries:Optional[int]=None,
                replicates:Optional[int]=None,
-               decoded:bool=True):
+               decoded:bool=True,
+               narrate:bool=False):
     """
     Finds cached inference files according to the search criteria. 
     Returns paths as a list. 
@@ -429,9 +431,11 @@ def find_result_files(exp_name:Union[str, list],
         .safetensors if not decoded or embeds
         .pkl if decoded output
 
-    :param exp_name: Union[str, list(str)]    name(s) of the experiments
-    :param base_name: Union[str, list(str)]   --base_model(s)
-    :param seed: int        --seed
+    :param exp_name: Union[str, list(str)]  --id name(s) of the 
+                                            experiments
+                                              
+    :param base_name: Union[str, list(str)] --base_model(s)
+    :param seed: int                        --seed
     :param peft_name: Optional[Union[str, list(str)]]    --peft_model(s)
     :param custom_name: Optional[str]   --model_name
     :param result_type: Optional[str]   "embeds" or "outputs". 
@@ -503,6 +507,8 @@ def find_result_files(exp_name:Union[str, list],
                 # Find matching files for this exp_name
                 matching_files = glob.glob(full_pattern)
                 all_matches.extend(matching_files)
+    if narrate:
+        print(f"Found {len(all_matches)} matches")
 
     return all_matches
 
@@ -525,8 +531,9 @@ def _aggregate_avg(tensor: torch.Tensor, replicates: Optional[int] = None) -> to
 
 
 def results_from_data_ids(filenames: list, 
-                          data_ids: list, 
+                          data_ids: Union[list, str]="all", 
                           aggregate: Optional[str] = "avg",
+                          queries: Optional[int] = None,
                           replicates: Optional[int] = None,
                           key_override: str = "drop_key"):
     """
@@ -549,6 +556,21 @@ def results_from_data_ids(filenames: list,
         msg = f"Only 'avg' aggregation is currently supported, got \
             {aggregate}"
         raise ValueError(display_message(msg))
+    
+    if isinstance(data_ids, str) and data_ids != "all":
+        msg = f"`data_ids` must be either a list of ids or 'all'"
+        raise ValueError(msg)
+    
+    if data_ids == "all": # infer from the first file
+        first = filenames[0]
+        with safe_open(first, framework="pt") as f:
+                data_ids = list(set(f.keys()))
+        
+        if check_if_null(queries, len(data_ids)): # if a count was given instead
+            data_ids = data_ids[:queries]
+            # WISHLIST add a way to sample here
+                
+
     
     # Step 1: Check all files are safetensors and validate keys
     valid_files = []
@@ -670,14 +692,9 @@ def induce_dkps(reps:Union[list, torch.Tensor],
     :param mds_dim: int                     dimension for MDS embedding
     :param mdskwargs: Optional[dict]        additional kwargs for compute_MDS
     :return: coords if get_coords else sim_mat
-    """
-    from safetensors.torch import save_file
-    import torch
-    import os
-    
+    """    
     # Convert to list if tensor
     reps = list(reps) if isinstance(reps, torch.Tensor) else reps
-    
     # Check that all entries have the same shape
     shapes = [r.shape if isinstance(r, torch.Tensor) else r.shape for r in \
                                                                         reps]
@@ -687,7 +704,7 @@ def induce_dkps(reps:Union[list, torch.Tensor],
         raise ValueError(display_message(msg))
     
     # Convert to Matrix objects
-    if not is_cov:
+    if not is_cov and similarity=="bw":
         # If not covariance matrices, compute them
         reps = [matrix.Matrix(torch.tensor(m) @ torch.tensor(m).T) for m in reps]
     else:
@@ -728,5 +745,5 @@ def induce_dkps(reps:Union[list, torch.Tensor],
         return coords
     else:
         return sim_mat
-
+# TODO add config saving !
 
